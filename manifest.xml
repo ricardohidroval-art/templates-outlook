@@ -39,6 +39,7 @@
     <Form xsi:type="ItemRead">
       <DesktopSettings>
         <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
+        <RequestedHeight>450</RequestedHeight>
       </DesktopSettings>
     </Form>
   </FormSettings>
@@ -69,11 +70,6 @@
             <OfficeTab id="TabDefault">
               <Group id="MeusTemplatesGroup">
                 <Label resid="GroupLabel" />
-                <Icon>
-                  <bt:Image size="16" resid="Icon.16x16" />
-                  <bt:Image size="32" resid="Icon.32x32" />
-                  <bt:Image size="80" resid="Icon.80x80" />
-                </Icon>
                 <Control xsi:type="Button" id="TaskpaneButton">
                   <Label resid="TaskpaneButton.Label" />
                   <Supertip>
@@ -97,11 +93,6 @@
             <OfficeTab id="TabDefault">
               <Group id="MeusTemplatesGroupRead">
                 <Label resid="GroupLabel" />
-                <Icon>
-                  <bt:Image size="16" resid="Icon.16x16" />
-                  <bt:Image size="32" resid="Icon.32x32" />
-                  <bt:Image size="80" resid="Icon.80x80" />
-                </Icon>
                 <Control xsi:type="Button" id="TaskpaneButtonRead">
                   <Label resid="TaskpaneButton.Label" />
                   <Supertip>
