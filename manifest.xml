@@ -17,7 +17,7 @@
   <SupportUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/" />
 
   <AppDomains>
-    <AppDomain>https://SUBSTITUIR-PELO-TEU-DOMINIO</AppDomain>
+    <AppDomain>https://ricardohidroval-art.github.io</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -33,7 +33,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/" />
+        <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
       </DesktopSettings>
     </Form>
   </FormSettings>
