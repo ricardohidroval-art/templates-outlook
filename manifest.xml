@@ -10,11 +10,11 @@
   <Version>1.0.0.0</Version>
   <ProviderName>Ricardo</ProviderName>
   <DefaultLocale>pt-PT</DefaultLocale>
-  <DisplayName DefaultValue="Meus Templates" />
+  <DisplayName DefaultValue="Os Meus Templates" />
   <Description DefaultValue="Gestor pessoal de templates de email com variáveis e anexos." />
-  <IconUrl DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/assets/icon-32.png" />
-  <HighResIconUrl DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/assets/icon-80.png" />
-  <SupportUrl DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/" />
+  <IconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-32.png" />
+  <HighResIconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-80.png" />
+  <SupportUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/" />
 
   <AppDomains>
     <AppDomain>https://SUBSTITUIR-PELO-TEU-DOMINIO</AppDomain>
@@ -33,7 +33,7 @@
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/taskpane.html" />
+        <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/" />
       </DesktopSettings>
     </Form>
   </FormSettings>
@@ -121,20 +121,20 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/assets/icon-16.png" />
-        <bt:Image id="Icon.32x32" DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/assets/icon-32.png" />
-        <bt:Image id="Icon.80x80" DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/assets/icon-80.png" />
+        <bt:Image id="Icon.16x16" DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/taskpane.html" />
-        <bt:Url id="Taskpane.Url" DefaultValue="https://SUBSTITUIR-PELO-TEU-DOMINIO/taskpane.html" />
+        <bt:Url id="Commands.Url" DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel" DefaultValue="Templates" />
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Meus Templates" />
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Os Meus Templates" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Abrir o gestor de templates de email" />
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Abrir o gestor de templates" />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
