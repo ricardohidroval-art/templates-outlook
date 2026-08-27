@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Meus Templates</title>
+  <title>Os Meus Templates</title>
   <link rel="stylesheet" href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css" />
   <link rel="stylesheet" href="taskpane.css" />
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
@@ -11,36 +11,59 @@
 <body class="ms-font-m ms-welcome">
 
   <header class="app-header">
-    <h1>Meus Templates</h1>
+    <h1>Os Meus Templates</h1>
     <button id="btn-novo" class="btn btn-primary">+ Novo</button>
   </header>
 
+  <!-- VISTA LISTA -->
   <div id="lista-vista">
     <div class="search-row">
-      <input id="pesquisa" type="text" placeholder="Pesquisar templates…" />
+      <div class="search-input-wrapper">
+        <input id="pesquisa" type="text" placeholder="Pesquisar por nome, assunto ou texto…" />
+        <button id="btn-limpar-pesquisa" class="btn-icon oculto" title="Limpar pesquisa">&times;</button>
+      </div>
+      <div class="categoria-filtro-wrapper">
+        <select id="filtro-categoria" class="select-categoria">
+          <option value="">Todas as categorias</option>
+        </select>
+        <button id="btn-gerir-categorias" class="btn btn-secondary btn-icon-only" title="Gerir Categorias">📁</button>
+      </div>
     </div>
+
     <div id="lista-templates" class="lista-templates"></div>
 
     <div class="rodape-acoes">
-      <button id="btn-exportar" class="btn btn-link">Exportar</button>
-      <button id="btn-importar" class="btn btn-link">Importar</button>
+      <button id="btn-exportar" class="btn btn-link">📤 Exportar Backup</button>
+      <button id="btn-importar" class="btn btn-link">📥 Importar Backup</button>
       <input id="input-importar" type="file" accept="application/json" style="display:none" />
     </div>
   </div>
 
+  <!-- VISTA EDITOR -->
   <div id="editor-vista" class="oculto">
     <h2 id="editor-titulo">Novo template</h2>
 
-    <label>Nome do template</label>
-    <input id="edit-nome" type="text" placeholder="Ex.: Proposta de orçamento" />
+    <label for="edit-nome">Nome do template</label>
+    <input id="edit-nome" type="text" placeholder="Ex.: Proposta de Orçamento" />
 
-    <label>Assunto</label>
-    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{numero_proposta}}" />
+    <label for="edit-categoria">Categoria / Pasta</label>
+    <input id="edit-categoria" type="text" list="lista-categorias-sugeridas" placeholder="Ex.: Comercial, Suporte, Geral..." />
+    <datalist id="lista-categorias-sugeridas"></datalist>
 
-    <label>Corpo do email</label>
-    <textarea id="edit-corpo" rows="10" placeholder="Escreve o corpo do email. Usa {{variavel}} para campos que preenches ao usar o template."></textarea>
+    <label for="edit-assunto">Assunto do email</label>
+    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{saudacao_tempo}}" />
 
-    <label>Anexo fixo do template (opcional — usa só se for sempre o mesmo ficheiro, ex. catálogo)</label>
+    <label for="edit-corpo">Corpo do email</label>
+    <div class="atalhos-vars">
+      <span class="atalhos-label">Inserir pré-definida:</span>
+      <button type="button" class="btn-var-tag" data-var="saudacao_tempo" title="Bom dia / Boa tarde / Boa noite">+ {{saudacao_tempo}}</button>
+      <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+ {{data_atual}}</button>
+      <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+ {{remetente_nome}}</button>
+      <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário">+ {{destinatario_nome}}</button>
+    </div>
+    <textarea id="edit-corpo" rows="9" placeholder="Escreve o corpo do email. Usa {{variavel}} para campos a preencher ao usar."></textarea>
+
+    <label for="edit-anexo">Anexo fixo do template (opcional)</label>
     <input id="edit-anexo" type="file" />
     <div id="anexo-atual" class="anexo-atual"></div>
 
@@ -55,19 +78,59 @@
     </div>
   </div>
 
+  <!-- VISTA USAR -->
   <div id="usar-vista" class="oculto">
     <h2 id="usar-titulo">Usar template</h2>
+    
     <div id="usar-campos"></div>
 
     <div id="usar-anexo-fixo" class="anexo-atual oculto"></div>
 
-    <label>Anexar ficheiro (opcional, só para este email)</label>
+    <label for="usar-anexo-extra">Anexar ficheiro extra (opcional, só para este email)</label>
     <input id="usar-anexo-extra" type="file" multiple />
     <div id="usar-anexo-extra-lista" class="anexo-atual"></div>
 
     <div class="editor-acoes">
       <button id="btn-inserir" class="btn btn-primary">Inserir no email</button>
       <button id="btn-usar-cancelar" class="btn btn-secondary">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- MODAL GERIR CATEGORIAS -->
+  <div id="modal-categorias" class="modal-overlay oculto">
+    <div class="modal-conteudo">
+      <h3>📁 Gerir Categorias</h3>
+      
+      <div class="criar-categoria-row">
+        <input id="novo-nome-categoria" type="text" placeholder="Nome da nova categoria..." />
+        <button id="btn-adicionar-categoria" class="btn btn-primary">Criar</button>
+      </div>
+
+      <div id="lista-gestao-categorias" class="lista-gestao-categorias"></div>
+
+      <button id="btn-fechar-modal-categorias" class="btn btn-secondary btn-full">Concluído</button>
+    </div>
+  </div>
+
+  <!-- MODAL OPÇÕES DE IMPORTAÇÃO -->
+  <div id="modal-importar" class="modal-overlay oculto">
+    <div class="modal-conteudo">
+      <h3>Importar Templates</h3>
+      <p id="modal-importar-info">Carregado ficheiro de backup com X templates.</p>
+      <p class="modal-pergunta">Como pretendes proceder com os templates existentes?</p>
+      
+      <div class="modal-opcoes">
+        <button id="btn-importar-unir" class="btn btn-primary">
+          ➕ Unir com existentes
+          <small>Mantém os teus templates e adiciona os novos</small>
+        </button>
+        <button id="btn-importar-substituir" class="btn btn-danger">
+          ⚠️ Substituir todos
+          <small>Apaga os templates atuais e carrega apenas os importados</small>
+        </button>
+      </div>
+      
+      <button id="btn-importar-cancelar" class="btn btn-secondary btn-full">Cancelar</button>
     </div>
   </div>
 

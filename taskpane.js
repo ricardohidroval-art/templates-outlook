@@ -1,14 +1,22 @@
-/* Meus Templates — gestor pessoal de templates de email para Outlook (Office.js) */
+/* Os Meus Templates — gestor pessoal de templates de email para Outlook (Office.js) */
 
 const STORAGE_KEY = "meusTemplates.v1";
+const CATEGORIAS_KEY = "meusTemplates.categorias.v1";
+
 let templates = [];
+let categoriasCustom = [];
 let templateEmEdicao = null; // id do template a editar, ou null se novo
 let anexoTemp = null; // { nome, tipoConteudo, base64 } carregado no editor
 let templateAUsar = null;
 let anexosExtraUso = []; // [{ nome, tipoConteudo, base64 }] escolhidos no momento de usar o template
+let backupImportarTemp = null; // Guardar temporariamente os templates a importar para o modal
+
+const CATEGORIAS_PADRAO = ["Geral", "Comercial", "Suporte", "Propostas"];
 
 Office.onReady(() => {
   carregarTemplates();
+  carregarCategorias();
+  atualizarDropdownCategorias();
   renderLista();
   ligarEventos();
 });
@@ -19,6 +27,10 @@ function carregarTemplates() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     templates = raw ? JSON.parse(raw) : [];
+    // Normalizar templates (garantir propriedade categoria)
+    templates.forEach(t => {
+      if (!t.categoria) t.categoria = "Geral";
+    });
   } catch (e) {
     templates = [];
   }
@@ -26,6 +38,143 @@ function carregarTemplates() {
 
 function guardarTemplates() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+}
+
+function carregarCategorias() {
+  try {
+    const raw = localStorage.getItem(CATEGORIAS_KEY);
+    if (raw) {
+      categoriasCustom = JSON.parse(raw);
+    } else {
+      categoriasCustom = [...CATEGORIAS_PADRAO];
+    }
+  } catch (e) {
+    categoriasCustom = [...CATEGORIAS_PADRAO];
+  }
+}
+
+function guardarCategorias() {
+  localStorage.setItem(CATEGORIAS_KEY, JSON.stringify(categoriasCustom));
+}
+
+function obterCategoriasUnicas() {
+  const setCat = new Set(["Geral", ...CATEGORIAS_PADRAO, ...categoriasCustom]);
+  templates.forEach(t => {
+    if (t.categoria && t.categoria.trim()) {
+      setCat.add(t.categoria.trim());
+    }
+  });
+  return Array.from(setCat).sort();
+}
+
+function atualizarDropdownCategorias() {
+  const categorias = obterCategoriasUnicas();
+
+  // Atualizar filtro da lista
+  const selectFiltro = document.getElementById("filtro-categoria");
+  const valorAtualFiltro = selectFiltro.value;
+  selectFiltro.innerHTML = `<option value="">Todas as categorias</option>`;
+  categorias.forEach(cat => {
+    const opt = document.createElement("option");
+    opt.value = cat;
+    opt.textContent = cat;
+    selectFiltro.appendChild(opt);
+  });
+  selectFiltro.value = valorAtualFiltro;
+
+  // Atualizar datalist de sugestões no editor
+  const datalist = document.getElementById("lista-categorias-sugeridas");
+  datalist.innerHTML = "";
+  categorias.forEach(cat => {
+    const opt = document.createElement("option");
+    opt.value = cat;
+    datalist.appendChild(opt);
+  });
+}
+
+/* ---------- Gestão de Categorias ---------- */
+
+function abrirModalCategorias() {
+  renderListaGestaoCategorias();
+  document.getElementById("novo-nome-categoria").value = "";
+  document.getElementById("modal-categorias").classList.remove("oculto");
+}
+
+function renderListaGestaoCategorias() {
+  const container = document.getElementById("lista-gestao-categorias");
+  container.innerHTML = "";
+
+  const categorias = obterCategoriasUnicas();
+
+  categorias.forEach(cat => {
+    const count = templates.filter(t => t.categoria === cat).length;
+    const isGeral = cat.toLowerCase() === "geral";
+
+    const item = document.createElement("div");
+    item.className = "item-gestao-categoria";
+    item.innerHTML = `
+      <div class="item-gestao-categoria-info">
+        <strong>${escapeHtml(cat)}</strong>
+        <span class="item-gestao-categoria-count">(${count} template${count === 1 ? '' : 's'})</span>
+      </div>
+      ${!isGeral ? `<button class="btn-eliminar-cat" data-cat="${escapeHtml(cat)}" title="Eliminar categoria">🗑️</button>` : `<span class="item-gestao-categoria-count">(padrão)</span>`}
+    `;
+    container.appendChild(item);
+  });
+}
+
+function adicionarNovaCategoria() {
+  const input = document.getElementById("novo-nome-categoria");
+  const nome = input.value.trim();
+
+  if (!nome) {
+    mostrarEstado("Escreve o nome da categoria.", true);
+    return;
+  }
+
+  const existentes = obterCategoriasUnicas().map(c => c.toLowerCase());
+  if (existentes.includes(nome.toLowerCase())) {
+    mostrarEstado("Essa categoria já existe.", true);
+    return;
+  }
+
+  categoriasCustom.push(nome);
+  guardarCategorias();
+  atualizarDropdownCategorias();
+  renderListaGestaoCategorias();
+  input.value = "";
+  mostrarEstado(`Categoria "${nome}" criada.`);
+}
+
+function eliminarCategoria(nomeCat) {
+  if (nomeCat.toLowerCase() === "geral") {
+    mostrarEstado("A categoria Geral não pode ser eliminada.", true);
+    return;
+  }
+
+  // Reatribuir templates para "Geral"
+  let afetados = 0;
+  templates.forEach(t => {
+    if (t.categoria === nomeCat) {
+      t.categoria = "Geral";
+      afetados++;
+    }
+  });
+
+  // Remover das custom
+  categoriasCustom = categoriasCustom.filter(c => c !== nomeCat);
+
+  guardarTemplates();
+  guardarCategorias();
+  atualizarDropdownCategorias();
+  renderListaGestaoCategorias();
+  renderLista();
+
+  if (afetados > 0) {
+    mostrarEstado(`Categoria eliminada. ${afetados} template(s) movido(s) para "Geral".`);
+  } else {
+    mostrarEstado(`Categoria "${nomeCat}" eliminada.`);
+  }
 }
 
 /* ---------- Navegação entre vistas ---------- */
@@ -38,17 +187,36 @@ function mostrarVista(vista) {
 
 /* ---------- Lista de templates ---------- */
 
-function renderLista(filtro = "") {
+function renderLista() {
   const container = document.getElementById("lista-templates");
   container.innerHTML = "";
 
-  const filtrados = templates.filter(t =>
-    t.nome.toLowerCase().includes(filtro.toLowerCase()) ||
-    t.assunto.toLowerCase().includes(filtro.toLowerCase())
-  );
+  const termoPesquisa = document.getElementById("pesquisa").value.trim().toLowerCase();
+  const categoriaFiltro = document.getElementById("filtro-categoria").value;
+  const btnLimpar = document.getElementById("btn-limpar-pesquisa");
+  
+  if (btnLimpar) {
+    btnLimpar.classList.toggle("oculto", !termoPesquisa);
+  }
+
+  const filtrados = templates.filter(t => {
+    const correspondeTexto = !termoPesquisa || 
+      t.nome.toLowerCase().includes(termoPesquisa) ||
+      t.assunto.toLowerCase().includes(termoPesquisa) ||
+      (t.corpo && t.corpo.toLowerCase().includes(termoPesquisa)) ||
+      (t.categoria && t.categoria.toLowerCase().includes(termoPesquisa));
+
+    const correspondeCategoria = !categoriaFiltro || t.categoria === categoriaFiltro;
+
+    return correspondeTexto && correspondeCategoria;
+  });
 
   if (filtrados.length === 0) {
-    container.innerHTML = `<p class="ajuda">Sem templates. Cria o primeiro com "+ Novo".</p>`;
+    if (templates.length === 0) {
+      container.innerHTML = `<p class="ajuda">Sem templates. Cria o primeiro com "+ Novo".</p>`;
+    } else {
+      container.innerHTML = `<p class="ajuda">Nenhum template encontrado para os filtros selecionados.</p>`;
+    }
     return;
   }
 
@@ -56,8 +224,11 @@ function renderLista(filtro = "") {
     const card = document.createElement("div");
     card.className = "cartao-template";
     card.innerHTML = `
-      <h3>${escapeHtml(t.nome)}</h3>
-      <p>${escapeHtml(t.assunto)}</p>
+      <div class="cartao-header">
+        <h3>${escapeHtml(t.nome)}</h3>
+        <span class="badge-categoria">${escapeHtml(t.categoria || "Geral")}</span>
+      </div>
+      <p>${escapeHtml(t.assunto || "(Sem assunto)")}</p>
       <div class="cartao-acoes">
         <button class="btn btn-primary" data-acao="usar" data-id="${t.id}">Usar</button>
         <button class="btn btn-secondary" data-acao="editar" data-id="${t.id}">Editar</button>
@@ -74,11 +245,13 @@ function abrirEditorNovo() {
   anexoTemp = null;
   document.getElementById("editor-titulo").textContent = "Novo template";
   document.getElementById("edit-nome").value = "";
+  document.getElementById("edit-categoria").value = "Geral";
   document.getElementById("edit-assunto").value = "";
   document.getElementById("edit-corpo").value = "";
   document.getElementById("edit-anexo").value = "";
   document.getElementById("anexo-atual").textContent = "";
   document.getElementById("btn-eliminar").classList.add("oculto");
+  atualizarDropdownCategorias();
   atualizarVarsDetetadas();
   mostrarVista("editor");
 }
@@ -90,11 +263,13 @@ function abrirEditorExistente(id) {
   anexoTemp = t.anexo || null;
   document.getElementById("editor-titulo").textContent = "Editar template";
   document.getElementById("edit-nome").value = t.nome;
+  document.getElementById("edit-categoria").value = t.categoria || "Geral";
   document.getElementById("edit-assunto").value = t.assunto;
   document.getElementById("edit-corpo").value = t.corpo;
   document.getElementById("edit-anexo").value = "";
   document.getElementById("anexo-atual").textContent = t.anexo ? `Anexo atual: ${t.anexo.nome}` : "";
   document.getElementById("btn-eliminar").classList.remove("oculto");
+  atualizarDropdownCategorias();
   atualizarVarsDetetadas();
   mostrarVista("editor");
 }
@@ -116,8 +291,26 @@ function atualizarVarsDetetadas() {
   document.getElementById("vars-detetadas").textContent = vars.length ? vars.join(", ") : "nenhuma";
 }
 
+function inserirTagVariavel(varNome) {
+  const textarea = document.getElementById("edit-corpo");
+  const tag = `{{${varNome}}}`;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const val = textarea.value;
+
+  if (start !== undefined && end !== undefined) {
+    textarea.value = val.substring(0, start) + tag + val.substring(end);
+    textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+  } else {
+    textarea.value += " " + tag;
+  }
+  textarea.focus();
+  atualizarVarsDetetadas();
+}
+
 function guardarTemplateAtual() {
   const nome = document.getElementById("edit-nome").value.trim();
+  const categoria = document.getElementById("edit-categoria").value.trim() || "Geral";
   const assunto = document.getElementById("edit-assunto").value.trim();
   const corpo = document.getElementById("edit-corpo").value;
 
@@ -126,22 +319,30 @@ function guardarTemplateAtual() {
     return;
   }
 
+  // Garantir que a nova categoria é guardada na lista de categorias
+  if (!categoriasCustom.includes(categoria) && categoria !== "Geral") {
+    categoriasCustom.push(categoria);
+    guardarCategorias();
+  }
+
   if (templateEmEdicao) {
     const t = templates.find(x => x.id === templateEmEdicao);
     t.nome = nome;
+    t.categoria = categoria;
     t.assunto = assunto;
     t.corpo = corpo;
     t.anexo = anexoTemp;
   } else {
     templates.push({
       id: "t_" + Date.now(),
-      nome, assunto, corpo,
+      nome, categoria, assunto, corpo,
       anexo: anexoTemp
     });
   }
 
   guardarTemplates();
-  renderLista(document.getElementById("pesquisa").value);
+  atualizarDropdownCategorias();
+  renderLista();
   mostrarVista("lista");
   mostrarEstado("Template guardado.");
 }
@@ -150,7 +351,8 @@ function eliminarTemplateAtual() {
   if (!templateEmEdicao) return;
   templates = templates.filter(x => x.id !== templateEmEdicao);
   guardarTemplates();
-  renderLista(document.getElementById("pesquisa").value);
+  atualizarDropdownCategorias();
+  renderLista();
   mostrarVista("lista");
   mostrarEstado("Template eliminado.");
 }
@@ -166,9 +368,66 @@ function lidarComAnexoSelecionado(ficheiro) {
   reader.readAsDataURL(ficheiro);
 }
 
+/* ---------- Resolução de Variáveis Pré-definidas Dinâmicas ---------- */
+
+function obterSaudacaoTempo() {
+  const hora = new Date().getHours();
+  if (hora >= 5 && hora < 12) return "Bom dia";
+  if (hora >= 12 && hora < 20) return "Boa tarde";
+  return "Boa noite";
+}
+
+function obterValoresPreDefinidosAsync() {
+  return new Promise((resolve) => {
+    const agora = new Date();
+    const dataFormatted = agora.toLocaleDateString("pt-PT");
+    const horaFormatted = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+
+    const valores = {
+      saudacao_tempo: obterSaudacaoTempo(),
+      data_atual: dataFormatted,
+      data: dataFormatted,
+      hora_atual: horaFormatted,
+      hora: horaFormatted,
+      remetente_nome: "",
+      remetente_email: "",
+      destinatario_nome: "",
+      destinatario_email: ""
+    };
+
+    try {
+      if (Office.context && Office.context.mailbox && Office.context.mailbox.userProfile) {
+        valores.remetente_nome = Office.context.mailbox.userProfile.displayName || "";
+        valores.remetente_email = Office.context.mailbox.userProfile.emailAddress || "";
+      }
+    } catch (e) {
+      console.warn("Não foi possível obter o perfil do utilizador:", e);
+    }
+
+    try {
+      const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
+      if (item && item.to && typeof item.to.getAsync === "function") {
+        item.to.getAsync((res) => {
+          if (res.status === Office.AsyncResultStatus.Succeeded && res.value && res.value.length > 0) {
+            const primeiroRec = res.value[0];
+            valores.destinatario_nome = primeiroRec.displayName || primeiroRec.emailAddress || "";
+            valores.destinatario_email = primeiroRec.emailAddress || "";
+          }
+          resolve(valores);
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("Não foi possível obter destinatários:", e);
+    }
+
+    resolve(valores);
+  });
+}
+
 /* ---------- Usar template ---------- */
 
-function abrirUsarTemplate(id) {
+async function abrirUsarTemplate(id) {
   const t = templates.find(x => x.id === id);
   if (!t) return;
   templateAUsar = t;
@@ -176,9 +435,8 @@ function abrirUsarTemplate(id) {
   const vars = extrairVariaveis(t.assunto + " " + t.corpo);
   document.getElementById("usar-titulo").textContent = `Usar: ${t.nome}`;
   const container = document.getElementById("usar-campos");
-  container.innerHTML = "";
+  container.innerHTML = "<p class='ajuda'>A carregar dados do email…</p>";
 
-  // reiniciar anexos escolhidos na sessão anterior
   anexosExtraUso = [];
   document.getElementById("usar-anexo-extra").value = "";
   document.getElementById("usar-anexo-extra-lista").textContent = "";
@@ -191,15 +449,27 @@ function abrirUsarTemplate(id) {
     anexoFixoEl.classList.add("oculto");
   }
 
+  const valoresPreDefinidos = await obterValoresPreDefinidosAsync();
+
+  container.innerHTML = "";
+
   if (vars.length === 0) {
-    container.innerHTML = `<p class="ajuda">Este template não tem variáveis. Basta inserir.</p>`;
+    container.innerHTML = `<p class="ajuda">Este template não tem variáveis. Clica em "Inserir no email" para aplicar.</p>`;
   } else {
     vars.forEach(v => {
       const div = document.createElement("div");
       div.className = "campo-variavel";
+      
+      const vKeyLower = v.toLowerCase();
+      const valDefault = valoresPreDefinidos[vKeyLower] !== undefined ? valoresPreDefinidos[vKeyLower] : "";
+      const isAuto = Boolean(valDefault);
+
       div.innerHTML = `
-        <label>${escapeHtml(v)}</label>
-        <input type="text" data-var="${escapeHtml(v)}" placeholder="Valor para {{${escapeHtml(v)}}}" />
+        <div class="campo-variavel-header">
+          <label for="var-field-${escapeHtml(v)}">${escapeHtml(v)}</label>
+          ${isAuto ? `<span class="badge-auto">Preenchido auto</span>` : ""}
+        </div>
+        <input id="var-field-${escapeHtml(v)}" type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(valDefault)}" placeholder="Valor para {{${escapeHtml(v)}}}" />
       `;
       container.appendChild(div);
     });
@@ -286,51 +556,119 @@ function inserirTemplateNoEmail() {
   Promise.all(tarefas)
     .then(() => anexarUmAUm(todosAnexos))
     .then(() => {
-      mostrarEstado("Template inserido no email.");
+      mostrarEstado("Template inserido com sucesso!");
       mostrarVista("lista");
     })
     .catch(err => {
       console.error(err);
-      mostrarEstado("Não foi possível inserir o template. Verifica se estás numa janela de composição.", true);
+      mostrarEstado("Erro ao inserir template. Garante que estás a compor um email.", true);
     });
 }
 
-/* ---------- Importar / Exportar ---------- */
+/* ---------- Exportar / Importar Backups ---------- */
 
 function exportarTemplates() {
-  const blob = new Blob([JSON.stringify(templates, null, 2)], { type: "application/json" });
+  if (templates.length === 0) {
+    mostrarEstado("Não existem templates para exportar.", true);
+    return;
+  }
+
+  const payload = {
+    versao: "1.1",
+    dataExportacao: new Date().toISOString(),
+    totalTemplates: templates.length,
+    categoriasCustom: categoriasCustom,
+    templates: templates
+  };
+
+  const jsonStr = JSON.stringify(payload, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "meus-templates.json";
+  a.download = `os-meus-templates-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  mostrarEstado("Backup exportado com sucesso.");
 }
 
-function importarTemplates(ficheiro) {
+function processarFicheiroImportar(ficheiro) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const importados = JSON.parse(reader.result);
-      if (!Array.isArray(importados)) throw new Error("formato inválido");
-      importados.forEach(t => {
-        if (!t.id) t.id = "t_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-      });
-      templates = templates.concat(importados);
-      guardarTemplates();
-      renderLista();
-      mostrarEstado(`${importados.length} template(s) importado(s).`);
+      const conteudo = JSON.parse(reader.result);
+      let listaImportada = [];
+      let catsImportadas = [];
+
+      if (Array.isArray(conteudo)) {
+        listaImportada = conteudo;
+      } else if (conteudo && Array.isArray(conteudo.templates)) {
+        listaImportada = conteudo.templates;
+        if (Array.isArray(conteudo.categoriasCustom)) {
+          catsImportadas = conteudo.categoriasCustom;
+        }
+      } else {
+        throw new Error("Formato inválido");
+      }
+
+      if (listaImportada.length === 0) {
+        mostrarEstado("O ficheiro de backup não contém nenhum template validado.", true);
+        return;
+      }
+
+      backupImportarTemp = {
+        templates: listaImportada.map(t => ({
+          id: "t_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+          nome: t.nome || "Template Sem Nome",
+          categoria: t.categoria || "Geral",
+          assunto: t.assunto || "",
+          corpo: t.corpo || "",
+          anexo: t.anexo || null
+        })),
+        categoriasCustom: catsImportadas
+      };
+
+      document.getElementById("modal-importar-info").textContent = 
+        `Ficheiro validado! Encontrados ${backupImportarTemp.templates.length} template(s).`;
+      document.getElementById("modal-importar").classList.remove("oculto");
+
     } catch (e) {
-      mostrarEstado("Ficheiro de importação inválido.", true);
+      mostrarEstado("Ficheiro JSON de backup inválido.", true);
     }
   };
   reader.readAsText(ficheiro);
 }
 
+function executarImportacao(modo) {
+  if (!backupImportarTemp) return;
+
+  if (modo === "unir") {
+    templates = templates.concat(backupImportarTemp.templates);
+    backupImportarTemp.categoriasCustom.forEach(c => {
+      if (!categoriasCustom.includes(c)) categoriasCustom.push(c);
+    });
+    mostrarEstado(`${backupImportarTemp.templates.length} template(s) unidos com sucesso!`);
+  } else if (modo === "substituir") {
+    templates = backupImportarTemp.templates;
+    if (backupImportarTemp.categoriasCustom.length) {
+      categoriasCustom = backupImportarTemp.categoriasCustom;
+    }
+    mostrarEstado(`Biblioteca substituída com ${backupImportarTemp.templates.length} template(s).`);
+  }
+
+  backupImportarTemp = null;
+  document.getElementById("modal-importar").classList.add("oculto");
+  
+  guardarTemplates();
+  guardarCategorias();
+  atualizarDropdownCategorias();
+  renderLista();
+}
+
 /* ---------- Utilitários ---------- */
 
 function escapeHtml(str) {
-  return String(str)
+  return String(str || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -343,7 +681,7 @@ function mostrarEstado(msg, erro = false) {
   el.classList.toggle("erro", erro);
   el.classList.remove("oculto");
   clearTimeout(estadoTimeout);
-  estadoTimeout = setTimeout(() => el.classList.add("oculto"), 3000);
+  estadoTimeout = setTimeout(() => el.classList.add("oculto"), 3500);
 }
 
 /* ---------- Eventos ---------- */
@@ -361,8 +699,44 @@ function ligarEventos() {
   document.getElementById("edit-anexo").addEventListener("change", e => lidarComAnexoSelecionado(e.target.files[0]));
   document.getElementById("usar-anexo-extra").addEventListener("change", e => lidarComAnexosExtra(e.target.files));
 
-  document.getElementById("pesquisa").addEventListener("input", e => renderLista(e.target.value));
+  // Gestão de Categorias Modal
+  document.getElementById("btn-gerir-categorias").addEventListener("click", abrirModalCategorias);
+  document.getElementById("btn-adicionar-categoria").addEventListener("click", adicionarNovaCategoria);
+  document.getElementById("novo-nome-categoria").addEventListener("keypress", e => {
+    if (e.key === "Enter") adicionarNovaCategoria();
+  });
+  document.getElementById("btn-fechar-modal-categorias").addEventListener("click", () => {
+    document.getElementById("modal-categorias").classList.add("oculto");
+  });
 
+  document.getElementById("lista-gestao-categorias").addEventListener("click", e => {
+    const btn = e.target.closest("button.btn-eliminar-cat");
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    if (cat) eliminarCategoria(cat);
+  });
+
+  // Eventos de atalho para inserir variáveis no corpo
+  document.querySelectorAll(".btn-var-tag").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const varNome = e.target.getAttribute("data-var");
+      if (varNome) inserirTagVariavel(varNome);
+    });
+  });
+
+  // Pesquisa e filtro por categoria
+  document.getElementById("pesquisa").addEventListener("input", renderLista);
+  document.getElementById("filtro-categoria").addEventListener("change", renderLista);
+  
+  const btnLimpar = document.getElementById("btn-limpar-pesquisa");
+  if (btnLimpar) {
+    btnLimpar.addEventListener("click", () => {
+      document.getElementById("pesquisa").value = "";
+      renderLista();
+    });
+  }
+
+  // Cliques na lista (Usar / Editar)
   document.getElementById("lista-templates").addEventListener("click", e => {
     const btn = e.target.closest("button[data-acao]");
     if (!btn) return;
@@ -371,9 +745,22 @@ function ligarEventos() {
     if (btn.dataset.acao === "editar") abrirEditorExistente(id);
   });
 
+  // Exportar / Importar com Modal
   document.getElementById("btn-exportar").addEventListener("click", exportarTemplates);
-  document.getElementById("btn-importar").addEventListener("click", () => document.getElementById("input-importar").click());
+  document.getElementById("btn-importar").addEventListener("click", () => {
+    const input = document.getElementById("input-importar");
+    input.value = "";
+    input.click();
+  });
+  
   document.getElementById("input-importar").addEventListener("change", e => {
-    if (e.target.files[0]) importarTemplates(e.target.files[0]);
+    if (e.target.files[0]) processarFicheiroImportar(e.target.files[0]);
+  });
+
+  document.getElementById("btn-importar-unir").addEventListener("click", () => executarImportacao("unir"));
+  document.getElementById("btn-importar-substituir").addEventListener("click", () => executarImportacao("substituir"));
+  document.getElementById("btn-importar-cancelar").addEventListener("click", () => {
+    backupImportarTemp = null;
+    document.getElementById("modal-importar").classList.add("oculto");
   });
 }
