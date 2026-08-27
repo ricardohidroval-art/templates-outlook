@@ -31,6 +31,11 @@
   </Requirements>
 
   <FormSettings>
+    <Form xsi:type="ItemEdit">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
+      </DesktopSettings>
+    </Form>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
         <SourceLocation DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/taskpane.html" />
@@ -42,6 +47,7 @@
 
   <Rule xsi:type="RuleCollection" Mode="Or">
     <Rule xsi:type="ItemIs" ItemType="Message" FormType="Edit" />
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
   </Rule>
 
   <DisableEntityHighlighting>false</DisableEntityHighlighting>
