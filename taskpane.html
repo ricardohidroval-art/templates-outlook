@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="pt-PT">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Os Meus Templates</title>
-  <link rel="stylesheet" href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css" />
+  <link rel="stylesheet"
+    href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css" />
   <link rel="stylesheet" href="taskpane.css" />
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 </head>
+
 <body class="ms-font-m ms-welcome">
 
   <header class="app-header">
@@ -33,8 +36,8 @@
     <div id="lista-templates" class="lista-templates"></div>
 
     <div class="rodape-acoes">
-      <button id="btn-exportar" class="btn btn-link">📤 Exportar Backup</button>
-      <button id="btn-importar" class="btn btn-link">📥 Importar Backup</button>
+      <button id="btn-exportar" class="btn btn-link">Exportar Backup</button>
+      <button id="btn-importar" class="btn btn-link">Importar Backup</button>
       <input id="input-importar" type="file" accept="application/json" style="display:none" />
     </div>
   </div>
@@ -47,7 +50,8 @@
     <input id="edit-nome" type="text" placeholder="Ex.: Proposta de Orçamento" />
 
     <label for="edit-categoria">Categoria / Pasta</label>
-    <input id="edit-categoria" type="text" list="lista-categorias-sugeridas" placeholder="Ex.: Comercial, Suporte, Geral..." />
+    <input id="edit-categoria" type="text" list="lista-categorias-sugeridas"
+      placeholder="Ex.: Comercial, Suporte, Geral..." />
     <datalist id="lista-categorias-sugeridas"></datalist>
 
     <!-- DESTINATÁRIOS (PARA / CC / BCC) -->
@@ -71,12 +75,17 @@
     <label for="edit-corpo">Corpo do email</label>
     <div class="atalhos-vars">
       <span class="atalhos-label">Inserir pré-definida:</span>
-      <button type="button" class="btn-var-tag" data-var="cumprimento" title="Bom dia / Boa tarde / Boa noite">+ {{cumprimento}}</button>
-      <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+ {{data_atual}}</button>
-      <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+ {{remetente_nome}}</button>
-      <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário">+ {{destinatario_nome}}</button>
+      <button type="button" class="btn-var-tag" data-var="cumprimento" title="Bom dia / Boa tarde / Boa noite">+
+        {{cumprimento}}</button>
+      <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+
+        {{data_atual}}</button>
+      <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+
+        {{remetente_nome}}</button>
+      <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário">+
+        {{destinatario_nome}}</button>
     </div>
-    <textarea id="edit-corpo" rows="9" placeholder="Escreve o corpo do email. Usa {{variavel}} para campos a preencher ao usar."></textarea>
+    <textarea id="edit-corpo" rows="9"
+      placeholder="Escreve o corpo do email. Usa {{variavel}} para campos a preencher ao usar."></textarea>
 
     <label for="edit-anexo">Anexo fixo do template (opcional)</label>
     <input id="edit-anexo" type="file" />
@@ -98,7 +107,7 @@
     <h2 id="usar-titulo">Usar template</h2>
 
     <details id="usar-seccao-destinatarios" class="seccao-destinatarios" open>
-      <summary>👥 Destinatários (Para / CC / BCC)</summary>
+      <summary>Destinatários (Para / CC / BCC)</summary>
       <div class="destinatarios-campos">
         <label for="usar-para">Para (separados por ;)</label>
         <input id="usar-para" type="text" placeholder="Sem destinatários Para pré-definidos" />
@@ -110,7 +119,7 @@
         <input id="usar-bcc" type="text" placeholder="Sem destinatários BCC pré-definidos" />
       </div>
     </details>
-    
+
     <div id="usar-campos"></div>
 
     <div id="usar-anexo-fixo" class="anexo-atual oculto"></div>
@@ -129,7 +138,7 @@
   <div id="modal-categorias" class="modal-overlay oculto">
     <div class="modal-conteudo">
       <h3>📁 Gerir Categorias</h3>
-      
+
       <div class="criar-categoria-row">
         <input id="novo-nome-categoria" type="text" placeholder="Nome da nova categoria..." />
         <button id="btn-adicionar-categoria" class="btn btn-primary">Criar</button>
@@ -147,7 +156,7 @@
       <h3>Importar Templates</h3>
       <p id="modal-importar-info">Carregado ficheiro de backup com X templates.</p>
       <p class="modal-pergunta">Como pretendes proceder com os templates existentes?</p>
-      
+
       <div class="modal-opcoes">
         <button id="btn-importar-unir" class="btn btn-primary">
           ➕ Unir com existentes
@@ -158,7 +167,7 @@
           <small>Apaga os templates atuais e carrega apenas os importados</small>
         </button>
       </div>
-      
+
       <button id="btn-importar-cancelar" class="btn btn-secondary btn-full">Cancelar</button>
     </div>
   </div>
@@ -167,4 +176,5 @@
 
   <script src="taskpane.js"></script>
 </body>
+
 </html>
