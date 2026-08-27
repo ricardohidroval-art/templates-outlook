@@ -195,13 +195,13 @@ function renderLista() {
   const termoPesquisa = document.getElementById("pesquisa").value.trim().toLowerCase();
   const categoriaFiltro = document.getElementById("filtro-categoria").value;
   const btnLimpar = document.getElementById("btn-limpar-pesquisa");
-  
+
   if (btnLimpar) {
     btnLimpar.classList.toggle("oculto", !termoPesquisa);
   }
 
   const filtrados = templates.filter(t => {
-    const correspondeTexto = !termoPesquisa || 
+    const correspondeTexto = !termoPesquisa ||
       t.nome.toLowerCase().includes(termoPesquisa) ||
       t.assunto.toLowerCase().includes(termoPesquisa) ||
       (t.corpo && t.corpo.toLowerCase().includes(termoPesquisa)) ||
@@ -300,7 +300,7 @@ function atualizarVarsDetetadas() {
   const para = document.getElementById("edit-para").value;
   const cc = document.getElementById("edit-cc").value;
   const bcc = document.getElementById("edit-bcc").value;
-  
+
   const vars = extrairVariaveis(`${assunto} ${corpo} ${para} ${cc} ${bcc}`);
   document.getElementById("vars-detetadas").textContent = vars.length ? vars.join(", ") : "nenhuma";
 }
@@ -397,14 +397,14 @@ function obterSaudacaoTempo() {
 
   // 05:00 até às 13:49 (inclusive) -> Bom dia
   if (minTotais >= 5 * 60 && minTotais <= 13 * 60 + 49) {
-    return "Bom dia";
+    return "Bom dia, ";
   }
   // 13:50 até às 19:59 (inclusive) -> Boa tarde
   if (minTotais >= 13 * 60 + 50 && minTotais < 20 * 60) {
-    return "Boa tarde";
+    return "Boa tarde, ";
   }
   // 20:00 às 04:59 -> Boa noite
-  return "Boa noite";
+  return "Boa noite, ";
 }
 
 function obterValoresPreDefinidosAsync() {
@@ -467,7 +467,7 @@ async function abrirUsarTemplate(id) {
   templateAUsar = t;
 
   document.getElementById("usar-titulo").textContent = `Usar: ${t.nome}`;
-  
+
   // Preencher destinatários (Para / CC / BCC)
   document.getElementById("usar-para").value = t.para || "";
   document.getElementById("usar-cc").value = t.cc || "";
@@ -501,7 +501,7 @@ async function abrirUsarTemplate(id) {
     vars.forEach(v => {
       const div = document.createElement("div");
       div.className = "campo-variavel";
-      
+
       const vKeyLower = v.toLowerCase();
       const valDefault = valoresPreDefinidos[vKeyLower] !== undefined ? valoresPreDefinidos[vKeyLower] : "";
       const isAuto = Boolean(valDefault);
@@ -718,7 +718,7 @@ function processarFicheiroImportar(ficheiro) {
         categoriasCustom: catsImportadas
       };
 
-      document.getElementById("modal-importar-info").textContent = 
+      document.getElementById("modal-importar-info").textContent =
         `Ficheiro validado! Encontrados ${backupImportarTemp.templates.length} template(s).`;
       document.getElementById("modal-importar").classList.remove("oculto");
 
@@ -748,7 +748,7 @@ function executarImportacao(modo) {
 
   backupImportarTemp = null;
   document.getElementById("modal-importar").classList.add("oculto");
-  
+
   guardarTemplates();
   guardarCategorias();
   atualizarDropdownCategorias();
@@ -820,7 +820,7 @@ function ligarEventos() {
   // Pesquisa e filtro por categoria
   document.getElementById("pesquisa").addEventListener("input", renderLista);
   document.getElementById("filtro-categoria").addEventListener("change", renderLista);
-  
+
   const btnLimpar = document.getElementById("btn-limpar-pesquisa");
   if (btnLimpar) {
     btnLimpar.addEventListener("click", () => {
@@ -845,7 +845,7 @@ function ligarEventos() {
     input.value = "";
     input.click();
   });
-  
+
   document.getElementById("input-importar").addEventListener("change", e => {
     if (e.target.files[0]) processarFicheiroImportar(e.target.files[0]);
   });
