@@ -201,6 +201,34 @@ input[type="text"], textarea {
 
 textarea { resize: vertical; }
 
+/* SECCÃO DESTINATÁRIOS (PARA / CC / BCC) */
+.seccao-destinatarios {
+  border: 1px solid #e1dfdd;
+  border-radius: 4px;
+  background: #fff;
+  margin: 10px 0;
+}
+
+.seccao-destinatarios summary {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #005a9e;
+  user-select: none;
+}
+
+.seccao-destinatarios summary:hover {
+  background: #f3f2f1;
+}
+
+.destinatarios-campos {
+  padding: 0 10px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* ATALHOS PARA VARIÁVEIS PRÉ-DEFINIDAS */
 .atalhos-vars {
   display: flex;

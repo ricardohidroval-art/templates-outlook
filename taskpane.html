@@ -50,13 +50,28 @@
     <input id="edit-categoria" type="text" list="lista-categorias-sugeridas" placeholder="Ex.: Comercial, Suporte, Geral..." />
     <datalist id="lista-categorias-sugeridas"></datalist>
 
+    <!-- DESTINATÁRIOS (PARA / CC / BCC) -->
+    <details class="seccao-destinatarios">
+      <summary>👥 Destinatários pré-definidos (Para, CC, BCC)</summary>
+      <div class="destinatarios-campos">
+        <label for="edit-para">Para (separados por ;)</label>
+        <input id="edit-para" type="text" placeholder="Ex.: cliente@empresa.com; {{email_cliente}}" />
+
+        <label for="edit-cc">CC (separados por ;)</label>
+        <input id="edit-cc" type="text" placeholder="Ex.: chefe@empresa.com; {{email_cc}}" />
+
+        <label for="edit-bcc">BCC (separados por ;)</label>
+        <input id="edit-bcc" type="text" placeholder="Ex.: arquivo@empresa.com" />
+      </div>
+    </details>
+
     <label for="edit-assunto">Assunto do email</label>
-    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{saudacao_tempo}}" />
+    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{cumprimento}}" />
 
     <label for="edit-corpo">Corpo do email</label>
     <div class="atalhos-vars">
       <span class="atalhos-label">Inserir pré-definida:</span>
-      <button type="button" class="btn-var-tag" data-var="saudacao_tempo" title="Bom dia / Boa tarde / Boa noite">+ {{saudacao_tempo}}</button>
+      <button type="button" class="btn-var-tag" data-var="cumprimento" title="Bom dia / Boa tarde / Boa noite">+ {{cumprimento}}</button>
       <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+ {{data_atual}}</button>
       <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+ {{remetente_nome}}</button>
       <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário">+ {{destinatario_nome}}</button>
@@ -81,6 +96,20 @@
   <!-- VISTA USAR -->
   <div id="usar-vista" class="oculto">
     <h2 id="usar-titulo">Usar template</h2>
+
+    <details id="usar-seccao-destinatarios" class="seccao-destinatarios" open>
+      <summary>👥 Destinatários (Para / CC / BCC)</summary>
+      <div class="destinatarios-campos">
+        <label for="usar-para">Para (separados por ;)</label>
+        <input id="usar-para" type="text" placeholder="Sem destinatários Para pré-definidos" />
+
+        <label for="usar-cc">CC (separados por ;)</label>
+        <input id="usar-cc" type="text" placeholder="Sem destinatários CC pré-definidos" />
+
+        <label for="usar-bcc">BCC (separados por ;)</label>
+        <input id="usar-bcc" type="text" placeholder="Sem destinatários BCC pré-definidos" />
+      </div>
+    </details>
     
     <div id="usar-campos"></div>
 

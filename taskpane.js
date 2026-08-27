@@ -27,9 +27,12 @@ function carregarTemplates() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     templates = raw ? JSON.parse(raw) : [];
-    // Normalizar templates (garantir propriedade categoria)
+    // Normalizar templates
     templates.forEach(t => {
       if (!t.categoria) t.categoria = "Geral";
+      if (!t.para) t.para = "";
+      if (!t.cc) t.cc = "";
+      if (!t.bcc) t.bcc = "";
     });
   } catch (e) {
     templates = [];
@@ -152,7 +155,6 @@ function eliminarCategoria(nomeCat) {
     return;
   }
 
-  // Reatribuir templates para "Geral"
   let afetados = 0;
   templates.forEach(t => {
     if (t.categoria === nomeCat) {
@@ -161,7 +163,6 @@ function eliminarCategoria(nomeCat) {
     }
   });
 
-  // Remover das custom
   categoriasCustom = categoriasCustom.filter(c => c !== nomeCat);
 
   guardarTemplates();
@@ -204,7 +205,10 @@ function renderLista() {
       t.nome.toLowerCase().includes(termoPesquisa) ||
       t.assunto.toLowerCase().includes(termoPesquisa) ||
       (t.corpo && t.corpo.toLowerCase().includes(termoPesquisa)) ||
-      (t.categoria && t.categoria.toLowerCase().includes(termoPesquisa));
+      (t.categoria && t.categoria.toLowerCase().includes(termoPesquisa)) ||
+      (t.para && t.para.toLowerCase().includes(termoPesquisa)) ||
+      (t.cc && t.cc.toLowerCase().includes(termoPesquisa)) ||
+      (t.bcc && t.bcc.toLowerCase().includes(termoPesquisa));
 
     const correspondeCategoria = !categoriaFiltro || t.categoria === categoriaFiltro;
 
@@ -246,6 +250,9 @@ function abrirEditorNovo() {
   document.getElementById("editor-titulo").textContent = "Novo template";
   document.getElementById("edit-nome").value = "";
   document.getElementById("edit-categoria").value = "Geral";
+  document.getElementById("edit-para").value = "";
+  document.getElementById("edit-cc").value = "";
+  document.getElementById("edit-bcc").value = "";
   document.getElementById("edit-assunto").value = "";
   document.getElementById("edit-corpo").value = "";
   document.getElementById("edit-anexo").value = "";
@@ -264,6 +271,9 @@ function abrirEditorExistente(id) {
   document.getElementById("editor-titulo").textContent = "Editar template";
   document.getElementById("edit-nome").value = t.nome;
   document.getElementById("edit-categoria").value = t.categoria || "Geral";
+  document.getElementById("edit-para").value = t.para || "";
+  document.getElementById("edit-cc").value = t.cc || "";
+  document.getElementById("edit-bcc").value = t.bcc || "";
   document.getElementById("edit-assunto").value = t.assunto;
   document.getElementById("edit-corpo").value = t.corpo;
   document.getElementById("edit-anexo").value = "";
@@ -287,7 +297,11 @@ function extrairVariaveis(texto) {
 function atualizarVarsDetetadas() {
   const assunto = document.getElementById("edit-assunto").value;
   const corpo = document.getElementById("edit-corpo").value;
-  const vars = extrairVariaveis(assunto + " " + corpo);
+  const para = document.getElementById("edit-para").value;
+  const cc = document.getElementById("edit-cc").value;
+  const bcc = document.getElementById("edit-bcc").value;
+  
+  const vars = extrairVariaveis(`${assunto} ${corpo} ${para} ${cc} ${bcc}`);
   document.getElementById("vars-detetadas").textContent = vars.length ? vars.join(", ") : "nenhuma";
 }
 
@@ -311,6 +325,9 @@ function inserirTagVariavel(varNome) {
 function guardarTemplateAtual() {
   const nome = document.getElementById("edit-nome").value.trim();
   const categoria = document.getElementById("edit-categoria").value.trim() || "Geral";
+  const para = document.getElementById("edit-para").value.trim();
+  const cc = document.getElementById("edit-cc").value.trim();
+  const bcc = document.getElementById("edit-bcc").value.trim();
   const assunto = document.getElementById("edit-assunto").value.trim();
   const corpo = document.getElementById("edit-corpo").value;
 
@@ -319,7 +336,6 @@ function guardarTemplateAtual() {
     return;
   }
 
-  // Garantir que a nova categoria é guardada na lista de categorias
   if (!categoriasCustom.includes(categoria) && categoria !== "Geral") {
     categoriasCustom.push(categoria);
     guardarCategorias();
@@ -329,13 +345,16 @@ function guardarTemplateAtual() {
     const t = templates.find(x => x.id === templateEmEdicao);
     t.nome = nome;
     t.categoria = categoria;
+    t.para = para;
+    t.cc = cc;
+    t.bcc = bcc;
     t.assunto = assunto;
     t.corpo = corpo;
     t.anexo = anexoTemp;
   } else {
     templates.push({
       id: "t_" + Date.now(),
-      nome, categoria, assunto, corpo,
+      nome, categoria, para, cc, bcc, assunto, corpo,
       anexo: anexoTemp
     });
   }
@@ -371,9 +390,20 @@ function lidarComAnexoSelecionado(ficheiro) {
 /* ---------- Resolução de Variáveis Pré-definidas Dinâmicas ---------- */
 
 function obterSaudacaoTempo() {
-  const hora = new Date().getHours();
-  if (hora >= 5 && hora < 12) return "Bom dia";
-  if (hora >= 12 && hora < 20) return "Boa tarde";
+  const agora = new Date();
+  const hora = agora.getHours();
+  const min = agora.getMinutes();
+  const minTotais = hora * 60 + min;
+
+  // 05:00 até às 13:49 (inclusive) -> Bom dia
+  if (minTotais >= 5 * 60 && minTotais <= 13 * 60 + 49) {
+    return "Bom dia";
+  }
+  // 13:50 até às 19:59 (inclusive) -> Boa tarde
+  if (minTotais >= 13 * 60 + 50 && minTotais < 20 * 60) {
+    return "Boa tarde";
+  }
+  // 20:00 às 04:59 -> Boa noite
   return "Boa noite";
 }
 
@@ -382,9 +412,13 @@ function obterValoresPreDefinidosAsync() {
     const agora = new Date();
     const dataFormatted = agora.toLocaleDateString("pt-PT");
     const horaFormatted = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+    const cumprimentoCalculado = obterSaudacaoTempo();
 
     const valores = {
-      saudacao_tempo: obterSaudacaoTempo(),
+      cumprimento: cumprimentoCalculado,
+      saudacao: cumprimentoCalculado,
+      saudacao_tempo: cumprimentoCalculado,
+      bom_dia_boa_tarde: cumprimentoCalculado,
       data_atual: dataFormatted,
       data: dataFormatted,
       hora_atual: horaFormatted,
@@ -432,8 +466,16 @@ async function abrirUsarTemplate(id) {
   if (!t) return;
   templateAUsar = t;
 
-  const vars = extrairVariaveis(t.assunto + " " + t.corpo);
   document.getElementById("usar-titulo").textContent = `Usar: ${t.nome}`;
+  
+  // Preencher destinatários (Para / CC / BCC)
+  document.getElementById("usar-para").value = t.para || "";
+  document.getElementById("usar-cc").value = t.cc || "";
+  document.getElementById("usar-bcc").value = t.bcc || "";
+
+  const todoOTexto = `${t.assunto} ${t.corpo} ${t.para || ""} ${t.cc || ""} ${t.bcc || ""}`;
+  const vars = extrairVariaveis(todoOTexto);
+
   const container = document.getElementById("usar-campos");
   container.innerHTML = "<p class='ajuda'>A carregar dados do email…</p>";
 
@@ -454,7 +496,7 @@ async function abrirUsarTemplate(id) {
   container.innerHTML = "";
 
   if (vars.length === 0) {
-    container.innerHTML = `<p class="ajuda">Este template não tem variáveis. Clica em "Inserir no email" para aplicar.</p>`;
+    container.innerHTML = `<p class="ajuda">Este template não tem variáveis de substituição. Clica em "Inserir no email" para aplicar.</p>`;
   } else {
     vars.forEach(v => {
       const div = document.createElement("div");
@@ -501,9 +543,17 @@ function lidarComAnexosExtra(ficheiros) {
 }
 
 function substituirVariaveis(texto, valores) {
-  return texto.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (match, nome) => {
+  return (texto || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (match, nome) => {
     return valores[nome] !== undefined ? valores[nome] : match;
   });
+}
+
+function parseEmailsParaDestinatarios(str) {
+  if (!str || !str.trim()) return [];
+  return str.split(/[;,]/)
+    .map(email => email.trim())
+    .filter(email => email.length > 0)
+    .map(email => ({ emailAddress: email }));
 }
 
 function inserirTemplateNoEmail() {
@@ -517,10 +567,19 @@ function inserirTemplateNoEmail() {
   const corpoFinal = substituirVariaveis(templateAUsar.corpo, valores);
   const corpoHtml = corpoFinal.replace(/\n/g, "<br>");
 
+  const paraFinal = substituirVariaveis(document.getElementById("usar-para").value, valores);
+  const ccFinal = substituirVariaveis(document.getElementById("usar-cc").value, valores);
+  const bccFinal = substituirVariaveis(document.getElementById("usar-bcc").value, valores);
+
+  const paraRecipients = parseEmailsParaDestinatarios(paraFinal);
+  const ccRecipients = parseEmailsParaDestinatarios(ccFinal);
+  const bccRecipients = parseEmailsParaDestinatarios(bccFinal);
+
   const item = Office.context.mailbox.item;
 
   const tarefas = [];
 
+  // Assunto
   tarefas.push(new Promise((resolve, reject) => {
     if (!assuntoFinal) { resolve(); return; }
     item.subject.setAsync(assuntoFinal, res => {
@@ -528,11 +587,39 @@ function inserirTemplateNoEmail() {
     });
   }));
 
+  // Corpo
   tarefas.push(new Promise((resolve, reject) => {
     item.body.setSelectedDataAsync(corpoHtml, { coercionType: Office.CoercionType.Html }, res => {
       res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
     });
   }));
+
+  // Destinatários Para
+  if (paraRecipients.length > 0 && item && item.to && typeof item.to.addAsync === "function") {
+    tarefas.push(new Promise((resolve, reject) => {
+      item.to.addAsync(paraRecipients, res => {
+        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
+      });
+    }));
+  }
+
+  // Destinatários CC
+  if (ccRecipients.length > 0 && item && item.cc && typeof item.cc.addAsync === "function") {
+    tarefas.push(new Promise((resolve, reject) => {
+      item.cc.addAsync(ccRecipients, res => {
+        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
+      });
+    }));
+  }
+
+  // Destinatários BCC
+  if (bccRecipients.length > 0 && item && item.bcc && typeof item.bcc.addAsync === "function") {
+    tarefas.push(new Promise((resolve, reject) => {
+      item.bcc.addAsync(bccRecipients, res => {
+        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
+      });
+    }));
+  }
 
   const todosAnexos = [];
   if (templateAUsar.anexo) todosAnexos.push(templateAUsar.anexo);
@@ -556,7 +643,7 @@ function inserirTemplateNoEmail() {
   Promise.all(tarefas)
     .then(() => anexarUmAUm(todosAnexos))
     .then(() => {
-      mostrarEstado("Template inserido com sucesso!");
+      mostrarEstado("Template e destinatários inseridos no email!");
       mostrarVista("lista");
     })
     .catch(err => {
@@ -574,7 +661,7 @@ function exportarTemplates() {
   }
 
   const payload = {
-    versao: "1.1",
+    versao: "1.2",
     dataExportacao: new Date().toISOString(),
     totalTemplates: templates.length,
     categoriasCustom: categoriasCustom,
@@ -621,6 +708,9 @@ function processarFicheiroImportar(ficheiro) {
           id: "t_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
           nome: t.nome || "Template Sem Nome",
           categoria: t.categoria || "Geral",
+          para: t.para || "",
+          cc: t.cc || "",
+          bcc: t.bcc || "",
           assunto: t.assunto || "",
           corpo: t.corpo || "",
           anexo: t.anexo || null
@@ -696,6 +786,9 @@ function ligarEventos() {
 
   document.getElementById("edit-assunto").addEventListener("input", atualizarVarsDetetadas);
   document.getElementById("edit-corpo").addEventListener("input", atualizarVarsDetetadas);
+  document.getElementById("edit-para").addEventListener("input", atualizarVarsDetetadas);
+  document.getElementById("edit-cc").addEventListener("input", atualizarVarsDetetadas);
+  document.getElementById("edit-bcc").addEventListener("input", atualizarVarsDetetadas);
   document.getElementById("edit-anexo").addEventListener("change", e => lidarComAnexoSelecionado(e.target.files[0]));
   document.getElementById("usar-anexo-extra").addEventListener("change", e => lidarComAnexosExtra(e.target.files));
 
