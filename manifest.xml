@@ -12,8 +12,8 @@
   <DefaultLocale>pt-PT</DefaultLocale>
   <DisplayName DefaultValue="Os Meus Templates" />
   <Description DefaultValue="Gestor pessoal de templates de email com variáveis e anexos." />
-  <IconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-32.png" />
-  <HighResIconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-80.png" />
+  <IconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-64.png" />
+  <HighResolutionIconUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/assets/icon-128.png" />
   <SupportUrl DefaultValue="https://ricardohidroval-art.github.io/templates-outlook/" />
 
   <AppDomains>
