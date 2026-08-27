@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meus Templates</title>
+  <link rel="stylesheet" href="https://res-1.cdn.office.net/files/fabric-cdn-prod_20230815.002/office-ui-fabric-core/11.1.0/css/fabric.min.css" />
+  <link rel="stylesheet" href="taskpane.css" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body class="ms-font-m ms-welcome">
+
+  <header class="app-header">
+    <h1>Meus Templates</h1>
+    <button id="btn-novo" class="btn btn-primary">+ Novo</button>
+  </header>
+
+  <div id="lista-vista">
+    <div class="search-row">
+      <input id="pesquisa" type="text" placeholder="Pesquisar templates…" />
+    </div>
+    <div id="lista-templates" class="lista-templates"></div>
+
+    <div class="rodape-acoes">
+      <button id="btn-exportar" class="btn btn-link">Exportar</button>
+      <button id="btn-importar" class="btn btn-link">Importar</button>
+      <input id="input-importar" type="file" accept="application/json" style="display:none" />
+    </div>
+  </div>
+
+  <div id="editor-vista" class="oculto">
+    <h2 id="editor-titulo">Novo template</h2>
+
+    <label>Nome do template</label>
+    <input id="edit-nome" type="text" placeholder="Ex.: Proposta de orçamento" />
+
+    <label>Assunto</label>
+    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{numero_proposta}}" />
+
+    <label>Corpo do email</label>
+    <textarea id="edit-corpo" rows="10" placeholder="Escreve o corpo do email. Usa {{variavel}} para campos que preenches ao usar o template."></textarea>
+
+    <label>Anexo fixo do template (opcional — usa só se for sempre o mesmo ficheiro, ex. catálogo)</label>
+    <input id="edit-anexo" type="file" />
+    <div id="anexo-atual" class="anexo-atual"></div>
+
+    <p class="ajuda">
+      Variáveis detetadas: <span id="vars-detetadas">nenhuma</span>
+    </p>
+
+    <div class="editor-acoes">
+      <button id="btn-guardar" class="btn btn-primary">Guardar</button>
+      <button id="btn-cancelar" class="btn btn-secondary">Cancelar</button>
+      <button id="btn-eliminar" class="btn btn-danger oculto">Eliminar</button>
+    </div>
+  </div>
+
+  <div id="usar-vista" class="oculto">
+    <h2 id="usar-titulo">Usar template</h2>
+    <div id="usar-campos"></div>
+
+    <div id="usar-anexo-fixo" class="anexo-atual oculto"></div>
+
+    <label>Anexar ficheiro (opcional, só para este email)</label>
+    <input id="usar-anexo-extra" type="file" multiple />
+    <div id="usar-anexo-extra-lista" class="anexo-atual"></div>
+
+    <div class="editor-acoes">
+      <button id="btn-inserir" class="btn btn-primary">Inserir no email</button>
+      <button id="btn-usar-cancelar" class="btn btn-secondary">Cancelar</button>
+    </div>
+  </div>
+
+  <div id="estado-msg" class="estado-msg oculto"></div>
+
+  <script src="taskpane.js"></script>
+</body>
+</html>

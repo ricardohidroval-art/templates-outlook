@@ -1,0 +1,150 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 12px;
+  font-family: "Segoe UI", -apple-system, sans-serif;
+  color: #242424;
+  background: #faf9f8;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.btn {
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-primary { background: #005a9e; color: #fff; }
+.btn-primary:hover { background: #004578; }
+
+.btn-secondary { background: #edebe9; color: #242424; }
+.btn-secondary:hover { background: #e1dfdd; }
+
+.btn-danger { background: #d13438; color: #fff; }
+.btn-danger:hover { background: #a4262c; }
+
+.btn-link { background: none; color: #005a9e; text-decoration: underline; padding: 4px 6px; }
+
+.search-row input {
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+  border: 1px solid #d1d1d1;
+  border-radius: 4px;
+}
+
+.lista-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cartao-template {
+  border: 1px solid #e1dfdd;
+  border-radius: 6px;
+  padding: 10px;
+  background: #fff;
+}
+
+.cartao-template h3 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+}
+
+.cartao-template p {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: #605e5c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cartao-acoes {
+  display: flex;
+  gap: 6px;
+}
+
+.cartao-acoes button {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.rodape-acoes {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid #e1dfdd;
+  padding-top: 10px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+input[type="text"], textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d1d1d1;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+textarea { resize: vertical; }
+
+.ajuda {
+  font-size: 12px;
+  color: #605e5c;
+  margin-top: 8px;
+}
+
+.anexo-atual {
+  font-size: 12px;
+  color: #605e5c;
+  margin-top: 4px;
+}
+
+.editor-acoes {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.oculto { display: none !important; }
+
+.estado-msg {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  background: #107c10;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.estado-msg.erro { background: #d13438; }
+
+.campo-variavel {
+  margin-bottom: 10px;
+}
