@@ -12,7 +12,8 @@ Add-in pessoal para gerir templates de email com variáveis `{{campo}}`, suporte
 
 1. **Categorias / Pastas:** Organiza os teus templates em categorias (ex.: *Comercial*, *Suporte*, *Propostas* ou categorias personalizadas).
 2. **Variáveis Pré-definidas Dinâmicas:** 
-   - `{{saudacao_tempo}}` — Preenche automaticamente *"Bom dia"*, *"Boa tarde"* ou *"Boa noite"* conforme a hora local.
+   - `{{Cumprimento}}` / `{{saudacao_tempo}}` — Preenche automaticamente *"Bom dia"*, *"Boa tarde"* ou *"Boa noite"* conforme a hora local.
+   - `{{NumDoc}}` — Campo pré-definido para Número do Documento (faturas, guias, orçamentos, etc.).
    - `{{data_atual}}` ou `{{data}}` — Preenche a data de hoje.
    - `{{hora_atual}}` ou `{{hora}}` — Preenche a hora atual.
    - `{{remetente_nome}}` / `{{remetente_email}}` — Obtém os teus dados de perfil no Outlook.

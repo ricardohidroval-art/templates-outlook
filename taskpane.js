@@ -416,6 +416,7 @@ function obterValoresPreDefinidosAsync() {
 
     const valores = {
       cumprimento: cumprimentoCalculado,
+      cumprimentos: cumprimentoCalculado,
       saudacao: cumprimentoCalculado,
       saudacao_tempo: cumprimentoCalculado,
       bom_dia_boa_tarde: cumprimentoCalculado,
@@ -423,6 +424,9 @@ function obterValoresPreDefinidosAsync() {
       data: dataFormatted,
       hora_atual: horaFormatted,
       hora: horaFormatted,
+      numdoc: "",
+      num_doc: "",
+      numero_documento: "",
       remetente_nome: "",
       remetente_email: "",
       destinatario_nome: "",
@@ -506,12 +510,22 @@ async function abrirUsarTemplate(id) {
       const valDefault = valoresPreDefinidos[vKeyLower] !== undefined ? valoresPreDefinidos[vKeyLower] : "";
       const isAuto = Boolean(valDefault);
 
+      let labelTexto = escapeHtml(v);
+      let placeholderTexto = `Valor para {{${escapeHtml(v)}}}`;
+
+      if (vKeyLower === "numdoc" || vKeyLower === "num_doc" || vKeyLower === "numero_documento") {
+        labelTexto = `${escapeHtml(v)} (Número do Documento)`;
+        placeholderTexto = "Ex.: FT 2026/001, Orçamento nº...";
+      } else if (vKeyLower === "cumprimento" || vKeyLower === "cumprimentos") {
+        labelTexto = "Cumprimento";
+      }
+
       div.innerHTML = `
         <div class="campo-variavel-header">
-          <label for="var-field-${escapeHtml(v)}">${escapeHtml(v)}</label>
+          <label for="var-field-${escapeHtml(v)}">${labelTexto}</label>
           ${isAuto ? `<span class="badge-auto">Preenchido auto</span>` : ""}
         </div>
-        <input id="var-field-${escapeHtml(v)}" type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(valDefault)}" placeholder="Valor para {{${escapeHtml(v)}}}" />
+        <input id="var-field-${escapeHtml(v)}" type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(valDefault)}" placeholder="${placeholderTexto}" />
       `;
       container.appendChild(div);
     });

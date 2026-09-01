@@ -70,13 +70,15 @@
     </details>
 
     <label for="edit-assunto">Assunto do email</label>
-    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{cumprimento}}" />
+    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{Cumprimento}}" />
 
     <label for="edit-corpo">Corpo do email</label>
     <div class="atalhos-vars">
       <span class="atalhos-label">Inserir pré-definida:</span>
-      <button type="button" class="btn-var-tag" data-var="cumprimento" title="Bom dia / Boa tarde / Boa noite">+
-        {{cumprimento}}</button>
+      <button type="button" class="btn-var-tag" data-var="Cumprimento" title="Bom dia / Boa tarde / Boa noite">+
+        {{Cumprimento}}</button>
+      <button type="button" class="btn-var-tag" data-var="NumDoc" title="Número do Documento">+
+        {{NumDoc}}</button>
       <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+
         {{data_atual}}</button>
       <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+
@@ -120,13 +122,15 @@
       </div>
     </details>
 
-    <div id="usar-campos"></div>
-
     <div id="usar-anexo-fixo" class="anexo-atual oculto"></div>
 
-    <label for="usar-anexo-extra">Anexar ficheiro extra (opcional, só para este email)</label>
-    <input id="usar-anexo-extra" type="file" multiple />
-    <div id="usar-anexo-extra-lista" class="anexo-atual"></div>
+    <div class="seccao-anexo-uso">
+      <label for="usar-anexo-extra">Anexar ficheiro extra (opcional, só para este email)</label>
+      <input id="usar-anexo-extra" type="file" multiple />
+      <div id="usar-anexo-extra-lista" class="anexo-atual"></div>
+    </div>
+
+    <div id="usar-campos"></div>
 
     <div class="editor-acoes">
       <button id="btn-inserir" class="btn btn-primary">Inserir no email</button>
