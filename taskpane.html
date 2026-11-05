@@ -26,19 +26,29 @@
         <button id="btn-limpar-pesquisa" class="btn-icon oculto" title="Limpar pesquisa">&times;</button>
       </div>
       <div class="categoria-filtro-wrapper">
-        <select id="filtro-categoria" class="select-categoria">
+        <select id="filtro-categoria" class="select-categoria" title="Filtrar por categoria">
           <option value="">Todas as categorias</option>
         </select>
         <button id="btn-gerir-categorias" class="btn btn-secondary btn-icon-only" title="Gerir Categorias">📁</button>
       </div>
+      <div class="categoria-filtro-wrapper">
+        <span class="atalhos-label">Ordenar:</span>
+        <select id="ordenacao" class="select-categoria" title="Ordenação (os favoritos aparecem sempre primeiro)">
+          <option value="usados">Mais usados</option>
+          <option value="recentes">Usados recentemente</option>
+          <option value="nome">Nome (A-Z)</option>
+        </select>
+      </div>
     </div>
 
-    <div id="lista-templates" class="lista-templates"></div>
+    <div id="lista-templates" class="lista-templates">
+      <p class="ajuda">A carregar…</p>
+    </div>
 
     <div class="rodape-acoes">
       <button id="btn-exportar" class="btn btn-link">Exportar Backup</button>
       <button id="btn-importar" class="btn btn-link">Importar Backup</button>
-      <input id="input-importar" type="file" accept="application/json" style="display:none" />
+      <input id="input-importar" type="file" accept="application/json,.json" style="display:none" />
     </div>
   </div>
 
@@ -70,24 +80,41 @@
     </details>
 
     <label for="edit-assunto">Assunto do email</label>
-    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{Cumprimento}}" />
+    <input id="edit-assunto" type="text" placeholder="Ex.: Proposta {{cliente}} – {{data_extenso}}" />
 
     <label for="edit-corpo">Corpo do email</label>
     <div class="atalhos-vars">
       <span class="atalhos-label">Inserir pré-definida:</span>
-      <button type="button" class="btn-var-tag" data-var="Cumprimento" title="Bom dia / Boa tarde / Boa noite">+
-        {{Cumprimento}}</button>
-      <button type="button" class="btn-var-tag" data-var="NumDoc" title="Número do Documento">+
-        {{NumDoc}}</button>
-      <button type="button" class="btn-var-tag" data-var="data_atual" title="Data no formato DD/MM/AAAA">+
-        {{data_atual}}</button>
-      <button type="button" class="btn-var-tag" data-var="remetente_nome" title="Teu nome de utilizador">+
-        {{remetente_nome}}</button>
-      <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário">+
-        {{destinatario_nome}}</button>
+      <button type="button" class="btn-var-tag" data-var="Cumprimento" title="Bom dia / Boa tarde / Boa noite">+ {{Cumprimento}}</button>
+      <button type="button" class="btn-var-tag" data-var="NumDoc" title="Número do Documento">+ {{NumDoc}}</button>
+      <button type="button" class="btn-var-tag" data-var="data_atual" title="Data de hoje (DD/MM/AAAA)">+ {{data_atual}}</button>
+      <button type="button" class="btn-var-tag" data-var="data_extenso" title="Data por extenso (ex.: 5 de novembro de 2026)">+ {{data_extenso}}</button>
+      <button type="button" class="btn-var-tag" data-var="data+30" title="Data daqui a 30 dias (muda o número à vontade)">+ {{data+30}}</button>
+      <button type="button" class="btn-var-tag" data-var="remetente_nome" title="O teu nome">+ {{remetente_nome}}</button>
+      <button type="button" class="btn-var-tag" data-var="destinatario_nome" title="Nome do primeiro destinatário (ou do remetente, ao responder)">+ {{destinatario_nome}}</button>
     </div>
-    <textarea id="edit-corpo" rows="9"
-      placeholder="Escreve o corpo do email. Usa {{variavel}} para campos a preencher ao usar."></textarea>
+
+    <div class="editor-toolbar" role="toolbar" aria-label="Formatação">
+      <button type="button" data-cmd="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
+      <button type="button" data-cmd="italic" title="Itálico (Ctrl+I)"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Sublinhado (Ctrl+U)"><u>U</u></button>
+      <button type="button" data-cmd="insertUnorderedList" title="Lista com marcas">• Lista</button>
+      <button type="button" data-cmd="insertOrderedList" title="Lista numerada">1. Lista</button>
+      <button type="button" id="btn-link" title="Inserir link">🔗 Link</button>
+      <button type="button" data-cmd="removeFormat" title="Limpar formatação">Limpar</button>
+    </div>
+    <div id="link-row" class="link-row oculto">
+      <input id="link-url" type="text" placeholder="https://… ou email@exemplo.pt" />
+      <button type="button" id="btn-link-ok" class="btn btn-primary">OK</button>
+      <button type="button" id="btn-link-cancelar" class="btn btn-secondary">✕</button>
+    </div>
+    <div id="edit-corpo" class="editor-rico" contenteditable="true" role="textbox" aria-multiline="true"
+      data-placeholder="Escreve o corpo do email. Usa {{variavel}} para campos a preencher ao usar."></div>
+
+    <p class="ajuda dicas-vars">
+      Dicas: <code>{{prazo|15 dias}}</code> valor por omissão · <code>{{estado:Pendente,Pago}}</code> lista de
+      opções · <code>{{data+30}}</code> / <code>{{data_extenso-7}}</code> datas calculadas.
+    </p>
 
     <label for="edit-anexo">Anexo fixo do template (opcional)</label>
     <input id="edit-anexo" type="file" />
@@ -108,6 +135,12 @@
   <div id="usar-vista" class="oculto">
     <h2 id="usar-titulo">Usar template</h2>
 
+    <p id="usar-nota-leitura" class="aviso oculto">
+      Estás a ler um email: o template vai abrir uma <strong>resposta</strong>. O assunto e os destinatários do
+      template não se aplicam, e os anexos não podem ser juntos automaticamente — para isso abre os Meus Templates
+      na janela da resposta.
+    </p>
+
     <details id="usar-seccao-destinatarios" class="seccao-destinatarios" open>
       <summary>Destinatários (Para / CC / BCC)</summary>
       <div class="destinatarios-campos">
@@ -124,7 +157,7 @@
 
     <div id="usar-anexo-fixo" class="anexo-atual oculto"></div>
 
-    <div class="seccao-anexo-uso">
+    <div id="usar-seccao-anexo-extra" class="seccao-anexo-uso">
       <label for="usar-anexo-extra">Anexar ficheiro extra (opcional, só para este email)</label>
       <input id="usar-anexo-extra" type="file" multiple />
       <div id="usar-anexo-extra-lista" class="anexo-atual"></div>
@@ -132,8 +165,26 @@
 
     <div id="usar-campos"></div>
 
+    <div id="usar-modo-insercao" class="modo-insercao">
+      <span class="atalhos-label">Colocar o texto:</span>
+      <label class="radio"><input type="radio" name="modo-insercao" value="cursor" checked /> No cursor</label>
+      <label class="radio"><input type="radio" name="modo-insercao" value="inicio" /> No início</label>
+      <label class="radio" title="Apaga o conteúdo atual do email, incluindo a assinatura"><input type="radio"
+          name="modo-insercao" value="substituir" /> Substituir tudo</label>
+    </div>
+
+    <details class="seccao-destinatarios" open>
+      <summary>Pré-visualização</summary>
+      <div class="preview">
+        <div id="preview-assunto" class="preview-assunto"></div>
+        <div id="preview-corpo" class="preview-corpo"></div>
+      </div>
+    </details>
+
     <div class="editor-acoes">
       <button id="btn-inserir" class="btn btn-primary">Inserir no email</button>
+      <button id="btn-responder" class="btn btn-primary oculto">Responder</button>
+      <button id="btn-responder-todos" class="btn btn-primary oculto">Responder a todos</button>
       <button id="btn-usar-cancelar" class="btn btn-secondary">Cancelar</button>
     </div>
   </div>
@@ -173,6 +224,18 @@
       </div>
 
       <button id="btn-importar-cancelar" class="btn btn-secondary btn-full">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- MODAL CONFIRMAÇÃO -->
+  <div id="modal-confirmar" class="modal-overlay modal-topo oculto">
+    <div class="modal-conteudo">
+      <h3>Confirmar</h3>
+      <p id="confirmar-msg"></p>
+      <div class="editor-acoes">
+        <button id="btn-confirmar-sim" class="btn btn-danger">Eliminar</button>
+        <button id="btn-confirmar-nao" class="btn btn-secondary">Cancelar</button>
+      </div>
     </div>
   </div>
 

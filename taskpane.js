@@ -1,100 +1,368 @@
 /* Os Meus Templates — gestor pessoal de templates de email para Outlook (Office.js) */
 
-const STORAGE_KEY = "meusTemplates.v1";
-const CATEGORIAS_KEY = "meusTemplates.categorias.v1";
+// Chaves da versão anterior (localStorage) — só usadas para migrar os dados
+const LS_TEMPLATES_ANTIGO = "meusTemplates.v1";
+const LS_CATEGORIAS_ANTIGO = "meusTemplates.categorias.v1";
+
+const DB_NOME = "meusTemplatesDB";
+const DB_STORE = "kv";
+const MAX_RECENTES = 8;
+const CATEGORIAS_PADRAO = ["Geral", "Comercial", "Suporte", "Propostas"];
 
 let templates = [];
 let categoriasCustom = [];
-let templateEmEdicao = null; // id do template a editar, ou null se novo
-let anexoTemp = null; // { nome, tipoConteudo, base64 } carregado no editor
+let recentes = {};            // { nomeVariavelMinusculas: [valores recentes] }
+let prefs = { ordenacao: "usados", modoInsercao: "cursor" };
+
+let templateEmEdicao = null;  // id do template a editar, ou null se novo
+let anexoTemp = null;         // { nome, tipoConteudo, base64 } carregado no editor
+let anexoACarregar = false;
 let templateAUsar = null;
-let anexosExtraUso = []; // [{ nome, tipoConteudo, base64 }] escolhidos no momento de usar o template
-let backupImportarTemp = null; // Guardar temporariamente os templates a importar para o modal
+let varsAUsar = [];           // [{ nome, padrao, opcoes, auto }]
+let anexosExtraUso = [];
+let anexosExtraACarregar = false;
+let backupImportarTemp = null;
+let ultimoRangeEditor = null;
+let rangeLink = null;
 
-const CATEGORIAS_PADRAO = ["Geral", "Comercial", "Suporte", "Propostas"];
+/* =====================================================================
+   Armazenamento (IndexedDB, com recurso ao localStorage se indisponível)
+   ===================================================================== */
 
-Office.onReady(() => {
-  carregarTemplates();
-  carregarCategorias();
-  atualizarDropdownCategorias();
-  renderLista();
-  ligarEventos();
-});
+let dbPromise = null;
+let usarLocalStorage = false;
 
-/* ---------- Armazenamento local ---------- */
-
-function carregarTemplates() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    templates = raw ? JSON.parse(raw) : [];
-    // Normalizar templates
-    templates.forEach(t => {
-      if (!t.categoria) t.categoria = "Geral";
-      if (!t.para) t.para = "";
-      if (!t.cc) t.cc = "";
-      if (!t.bcc) t.bcc = "";
+function abrirDB() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error("IndexedDB indisponível")); return; }
+      const req = indexedDB.open(DB_NOME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("IndexedDB bloqueado"));
     });
+  }
+  return dbPromise;
+}
+
+async function kvGet(chave) {
+  if (!usarLocalStorage) {
+    try {
+      const db = await abrirDB();
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(chave);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn("IndexedDB indisponível, a usar localStorage:", e);
+      usarLocalStorage = true;
+    }
+  }
+  const raw = localStorage.getItem("meusTemplates.kv." + chave);
+  return raw ? JSON.parse(raw) : undefined;
+}
+
+async function kvSet(chave, valor) {
+  if (!usarLocalStorage) {
+    const db = await abrirDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).put(valor, chave);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("Gravação abortada"));
+    });
+    return;
+  }
+  localStorage.setItem("meusTemplates.kv." + chave, JSON.stringify(valor));
+}
+
+function lerJsonLocalStorage(chave) {
+  try {
+    const raw = localStorage.getItem(chave);
+    return raw ? JSON.parse(raw) : undefined;
   } catch (e) {
-    templates = [];
+    return undefined;
   }
 }
 
-// Devolve true se gravou. Em caso de falha (ex.: espaço do localStorage esgotado
-// por causa de anexos grandes), repõe o último estado gravado e avisa.
-function guardarTemplates() {
+async function carregarTudo() {
+  let tpl = await kvGet("templates");
+  let cats = await kvGet("categorias");
+
+  if (tpl === undefined) {
+    // Migração automática da versão anterior (dados no localStorage)
+    const antigos = lerJsonLocalStorage(LS_TEMPLATES_ANTIGO);
+    const catsAntigas = lerJsonLocalStorage(LS_CATEGORIAS_ANTIGO);
+    tpl = Array.isArray(antigos) ? antigos.map(normalizarTemplate) : [];
+    if (cats === undefined && Array.isArray(catsAntigas)) cats = catsAntigas;
+
+    if (antigos || catsAntigas) {
+      try {
+        await kvSet("templates", tpl);
+        if (cats) await kvSet("categorias", cats);
+        localStorage.removeItem(LS_TEMPLATES_ANTIGO);
+        localStorage.removeItem(LS_CATEGORIAS_ANTIGO);
+        console.info(`Migrados ${tpl.length} template(s) para o novo armazenamento.`);
+      } catch (e) {
+        console.error("Falha na migração (os dados antigos foram mantidos):", e);
+      }
+    }
+  }
+
+  templates = (Array.isArray(tpl) ? tpl : []).map(normalizarTemplate);
+  categoriasCustom = Array.isArray(cats) ? cats : [...CATEGORIAS_PADRAO];
+  recentes = (await kvGet("recentes")) || {};
+  prefs = Object.assign({}, prefs, (await kvGet("prefs")) || {});
+
+  // Pede ao browser para não apagar estes dados quando houver pouco espaço
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => { });
+  }
+}
+
+// Devolve true se gravou. Se falhar, repõe o último estado gravado e avisa.
+async function guardarTemplates() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+    await kvSet("templates", templates);
     return true;
   } catch (e) {
     console.error("Falha ao gravar templates:", e);
-    carregarTemplates();
-    mostrarEstado("Não foi possível guardar: sem espaço de armazenamento (anexos demasiado grandes?). As alterações não foram gravadas.", true);
+    const gravados = await kvGet("templates").catch(() => undefined);
+    templates = (Array.isArray(gravados) ? gravados : templates).map(normalizarTemplate);
+    mostrarEstado("Não foi possível guardar (sem espaço de armazenamento?). As alterações não foram gravadas.", true);
     return false;
   }
 }
 
-function carregarCategorias() {
+async function guardarCategorias() {
   try {
-    const raw = localStorage.getItem(CATEGORIAS_KEY);
-    if (raw) {
-      categoriasCustom = JSON.parse(raw);
-    } else {
-      categoriasCustom = [...CATEGORIAS_PADRAO];
-    }
-  } catch (e) {
-    categoriasCustom = [...CATEGORIAS_PADRAO];
-  }
-}
-
-function guardarCategorias() {
-  try {
-    localStorage.setItem(CATEGORIAS_KEY, JSON.stringify(categoriasCustom));
+    await kvSet("categorias", categoriasCustom);
     return true;
   } catch (e) {
     console.error("Falha ao gravar categorias:", e);
-    mostrarEstado("Não foi possível guardar as categorias (sem espaço de armazenamento).", true);
+    mostrarEstado("Não foi possível guardar as categorias.", true);
     return false;
   }
 }
 
+function guardarRecentes() {
+  return kvSet("recentes", recentes).catch(e => console.warn("Falha ao gravar valores recentes:", e));
+}
+
+function guardarPrefs() {
+  return kvSet("prefs", prefs).catch(e => console.warn("Falha ao gravar preferências:", e));
+}
+
+function novoId() {
+  return "t_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+}
+
+function normalizarTemplate(t) {
+  const n = Object.assign({}, t);
+  n.id = n.id || novoId();
+  n.nome = n.nome || "Template Sem Nome";
+  n.categoria = String(n.categoria || "Geral").trim() || "Geral";
+  ["para", "cc", "bcc", "assunto"].forEach(k => { n[k] = n[k] || ""; });
+  if (n.formato !== "html") {
+    // Templates antigos tinham o corpo em texto simples
+    n.corpo = textoParaHtml(n.corpo || "");
+    n.formato = "html";
+  } else {
+    n.corpo = sanitizarHtml(n.corpo || "");
+  }
+  n.anexo = n.anexo || null;
+  n.favorito = Boolean(n.favorito);
+  n.usos = Number(n.usos) || 0;
+  n.ultimoUso = Number(n.ultimoUso) || 0;
+  return n;
+}
+
+/* =====================================================================
+   HTML: conversão e limpeza
+   ===================================================================== */
+
+const TAGS_PERMITIDAS = new Set(["B", "STRONG", "I", "EM", "U", "BR", "P", "DIV", "SPAN", "UL", "OL", "LI", "A"]);
+const TAGS_REMOVER = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "IMG", "SVG", "MATH", "FORM",
+  "INPUT", "BUTTON", "SELECT", "TEXTAREA", "META", "LINK", "TITLE", "HEAD", "XML", "NOSCRIPT", "TEMPLATE",
+  "VIDEO", "AUDIO", "CANVAS"]);
+
+function sanitizarHtml(html) {
+  const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+  limparNo(doc.body);
+  return doc.body.innerHTML;
+}
+
+function limparNo(no) {
+  Array.from(no.childNodes).forEach(filho => {
+    if (filho.nodeType === Node.TEXT_NODE) return;
+    if (filho.nodeType !== Node.ELEMENT_NODE || TAGS_REMOVER.has(filho.tagName)) {
+      filho.remove();
+      return;
+    }
+    limparNo(filho);
+    if (!TAGS_PERMITIDAS.has(filho.tagName)) {
+      filho.replaceWith(...Array.from(filho.childNodes));
+      return;
+    }
+    Array.from(filho.attributes).forEach(a => {
+      const manter = filho.tagName === "A" && a.name === "href" && /^(https?:|mailto:)/i.test(a.value.trim());
+      if (!manter) filho.removeAttribute(a.name);
+    });
+  });
+}
+
+function textoParaHtml(texto) {
+  return escapeHtml(texto).replace(/\r?\n/g, "<br>");
+}
+
+function htmlParaTexto(html) {
+  const comQuebras = String(html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li)>/gi, "\n");
+  const doc = new DOMParser().parseFromString(comQuebras, "text/html");
+  return doc.body.textContent || "";
+}
+
+/* =====================================================================
+   Variáveis: {{nome}}, {{nome|omissão}}, {{nome:op1,op2}}, {{data+30}}
+   ===================================================================== */
+
+// Nome: letras (incl. acentuadas), números e _; opcionalmente +N / -N (datas)
+const RE_VAR_SRC = "{{\\s*([A-Za-z0-9_\\u00C0-\\u024F]+(?:[+-]\\d+)?)\\s*(?:([|:])([^{}]*?))?\\s*}}";
+function novaRegexVars() { return new RegExp(RE_VAR_SRC, "g"); }
+
+function extrairVariaveis(texto) {
+  const mapa = new Map();
+  const re = novaRegexVars();
+  let m;
+  while ((m = re.exec(texto)) !== null) {
+    const nome = m[1];
+    if (!mapa.has(nome)) mapa.set(nome, { nome, padrao: "", opcoes: [] });
+    const v = mapa.get(nome);
+    if (m[2] === "|" && !v.padrao) v.padrao = m[3].trim();
+    if (m[2] === ":" && !v.opcoes.length) v.opcoes = m[3].split(",").map(s => s.trim()).filter(Boolean);
+  }
+  return Array.from(mapa.values());
+}
+
+function substituirVariaveis(texto, valores, escapar) {
+  return String(texto || "").replace(novaRegexVars(), (match, nome) => {
+    if (valores[nome] === undefined) return match;
+    return escapar ? escapeHtml(valores[nome]) : valores[nome];
+  });
+}
+
+function valorData(nomeMinusculas) {
+  const m = /^(data|data_atual|data_extenso)([+-]\d+)?$/.exec(nomeMinusculas);
+  if (!m) return undefined;
+  const d = new Date();
+  if (m[2]) d.setDate(d.getDate() + parseInt(m[2], 10));
+  return m[1] === "data_extenso"
+    ? d.toLocaleDateString("pt-PT", { day: "numeric", month: "long", year: "numeric" })
+    : d.toLocaleDateString("pt-PT");
+}
+
+function obterSaudacaoTempo() {
+  const agora = new Date();
+  const minTotais = agora.getHours() * 60 + agora.getMinutes();
+
+  // 05:00 até às 13:49 (inclusive) -> Bom dia
+  if (minTotais >= 5 * 60 && minTotais <= 13 * 60 + 49) return "Bom dia, ";
+  // 13:50 até às 19:59 (inclusive) -> Boa tarde
+  if (minTotais >= 13 * 60 + 50 && minTotais < 20 * 60) return "Boa tarde, ";
+  // 20:00 às 04:59 -> Boa noite
+  return "Boa noite, ";
+}
+
+function obterItem() {
+  return (window.Office && Office.context && Office.context.mailbox && Office.context.mailbox.item) || null;
+}
+
+// Em modo de leitura o item tem displayReplyForm; ao compor não tem.
+function modoLeitura() {
+  const item = obterItem();
+  return Boolean(item && typeof item.displayReplyForm === "function");
+}
+
+function obterValoresPreDefinidosAsync() {
+  return new Promise((resolve) => {
+    const agora = new Date();
+    const horaFormatada = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+    const cumprimento = obterSaudacaoTempo();
+
+    const valores = {
+      cumprimento, cumprimentos: cumprimento, saudacao: cumprimento,
+      saudacao_tempo: cumprimento, bom_dia_boa_tarde: cumprimento,
+      hora_atual: horaFormatada, hora: horaFormatada,
+      numdoc: "", num_doc: "", numero_documento: "",
+      remetente_nome: "", remetente_email: "",
+      destinatario_nome: "", destinatario_email: ""
+    };
+
+    try {
+      const perfil = Office.context && Office.context.mailbox && Office.context.mailbox.userProfile;
+      if (perfil) {
+        valores.remetente_nome = perfil.displayName || "";
+        valores.remetente_email = perfil.emailAddress || "";
+      }
+    } catch (e) {
+      console.warn("Não foi possível obter o perfil do utilizador:", e);
+    }
+
+    try {
+      const item = obterItem();
+      if (item && modoLeitura()) {
+        // Ao responder, o "destinatário" é quem nos enviou o email
+        if (item.from) {
+          valores.destinatario_nome = item.from.displayName || item.from.emailAddress || "";
+          valores.destinatario_email = item.from.emailAddress || "";
+        }
+      } else if (item && item.to && typeof item.to.getAsync === "function") {
+        item.to.getAsync((res) => {
+          if (res.status === Office.AsyncResultStatus.Succeeded && res.value && res.value.length > 0) {
+            const primeiro = res.value[0];
+            valores.destinatario_nome = primeiro.displayName || primeiro.emailAddress || "";
+            valores.destinatario_email = primeiro.emailAddress || "";
+          }
+          resolve(valores);
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("Não foi possível obter destinatários:", e);
+    }
+
+    resolve(valores);
+  });
+}
+
+function valorAutomatico(nomeMinusculas, valoresPreDefinidos) {
+  if (valoresPreDefinidos[nomeMinusculas] !== undefined) return valoresPreDefinidos[nomeMinusculas];
+  return valorData(nomeMinusculas) || "";
+}
+
+/* =====================================================================
+   Categorias
+   ===================================================================== */
+
 function obterCategoriasUnicas() {
-  // As categorias padrão já entram em categoriasCustom na primeira utilização,
+  // As categorias padrão entram em categoriasCustom na primeira utilização,
   // por isso podem ser eliminadas como qualquer outra (exceto "Geral").
   const setCat = new Set(["Geral", ...categoriasCustom]);
   templates.forEach(t => {
-    if (t.categoria && t.categoria.trim()) {
-      setCat.add(t.categoria.trim());
-    }
+    if (t.categoria && t.categoria.trim()) setCat.add(t.categoria.trim());
   });
-  return Array.from(setCat).sort();
+  return Array.from(setCat).sort((a, b) => a.localeCompare(b, "pt"));
 }
 
 function atualizarDropdownCategorias() {
   const categorias = obterCategoriasUnicas();
 
-  // Atualizar filtro da lista
   const selectFiltro = document.getElementById("filtro-categoria");
-  const valorAtualFiltro = selectFiltro.value;
+  const valorAtual = selectFiltro.value;
   selectFiltro.innerHTML = `<option value="">Todas as categorias</option>`;
   categorias.forEach(cat => {
     const opt = document.createElement("option");
@@ -102,9 +370,8 @@ function atualizarDropdownCategorias() {
     opt.textContent = cat;
     selectFiltro.appendChild(opt);
   });
-  selectFiltro.value = valorAtualFiltro;
+  selectFiltro.value = categorias.includes(valorAtual) ? valorAtual : "";
 
-  // Atualizar datalist de sugestões no editor
   const datalist = document.getElementById("lista-categorias-sugeridas");
   datalist.innerHTML = "";
   categorias.forEach(cat => {
@@ -113,8 +380,6 @@ function atualizarDropdownCategorias() {
     datalist.appendChild(opt);
   });
 }
-
-/* ---------- Gestão de Categorias ---------- */
 
 function abrirModalCategorias() {
   renderListaGestaoCategorias();
@@ -126,9 +391,7 @@ function renderListaGestaoCategorias() {
   const container = document.getElementById("lista-gestao-categorias");
   container.innerHTML = "";
 
-  const categorias = obterCategoriasUnicas();
-
-  categorias.forEach(cat => {
+  obterCategoriasUnicas().forEach(cat => {
     const count = templates.filter(t => t.categoria === cat).length;
     const isGeral = cat.toLowerCase() === "geral";
 
@@ -137,15 +400,17 @@ function renderListaGestaoCategorias() {
     item.innerHTML = `
       <div class="item-gestao-categoria-info">
         <strong>${escapeHtml(cat)}</strong>
-        <span class="item-gestao-categoria-count">(${count} template${count === 1 ? '' : 's'})</span>
+        <span class="item-gestao-categoria-count">(${count} template${count === 1 ? "" : "s"})</span>
       </div>
-      ${!isGeral ? `<button class="btn-eliminar-cat" data-cat="${escapeHtml(cat)}" title="Eliminar categoria">🗑️</button>` : `<span class="item-gestao-categoria-count">(padrão)</span>`}
+      ${!isGeral
+        ? `<button class="btn-eliminar-cat" data-cat="${escapeHtml(cat)}" title="Eliminar categoria">🗑️</button>`
+        : `<span class="item-gestao-categoria-count">(padrão)</span>`}
     `;
     container.appendChild(item);
   });
 }
 
-function adicionarNovaCategoria() {
+async function adicionarNovaCategoria() {
   const input = document.getElementById("novo-nome-categoria");
   const nome = input.value.trim();
 
@@ -153,133 +418,290 @@ function adicionarNovaCategoria() {
     mostrarEstado("Escreve o nome da categoria.", true);
     return;
   }
-
-  const existentes = obterCategoriasUnicas().map(c => c.toLowerCase());
-  if (existentes.includes(nome.toLowerCase())) {
+  if (obterCategoriasUnicas().some(c => c.toLowerCase() === nome.toLowerCase())) {
     mostrarEstado("Essa categoria já existe.", true);
     return;
   }
 
   categoriasCustom.push(nome);
-  guardarCategorias();
+  await guardarCategorias();
   atualizarDropdownCategorias();
   renderListaGestaoCategorias();
   input.value = "";
   mostrarEstado(`Categoria "${nome}" criada.`);
 }
 
-function eliminarCategoria(nomeCat) {
+async function eliminarCategoria(nomeCat) {
   if (nomeCat.toLowerCase() === "geral") {
     mostrarEstado("A categoria Geral não pode ser eliminada.", true);
     return;
   }
 
-  let afetados = 0;
-  templates.forEach(t => {
-    if (t.categoria === nomeCat) {
-      t.categoria = "Geral";
-      afetados++;
-    }
-  });
+  const afetados = templates.filter(t => t.categoria === nomeCat).length;
+  const ok = await confirmar(afetados
+    ? `Eliminar a categoria "${nomeCat}"? Os ${afetados} template(s) desta categoria passam para "Geral".`
+    : `Eliminar a categoria "${nomeCat}"?`);
+  if (!ok) return;
 
+  templates.forEach(t => { if (t.categoria === nomeCat) t.categoria = "Geral"; });
   categoriasCustom = categoriasCustom.filter(c => c !== nomeCat);
 
-  guardarTemplates();
-  guardarCategorias();
+  if (afetados) await guardarTemplates();
+  await guardarCategorias();
   atualizarDropdownCategorias();
   renderListaGestaoCategorias();
   renderLista();
 
-  if (afetados > 0) {
-    mostrarEstado(`Categoria eliminada. ${afetados} template(s) movido(s) para "Geral".`);
-  } else {
-    mostrarEstado(`Categoria "${nomeCat}" eliminada.`);
-  }
+  mostrarEstado(afetados
+    ? `Categoria eliminada. ${afetados} template(s) movido(s) para "Geral".`
+    : `Categoria "${nomeCat}" eliminada.`);
 }
 
-/* ---------- Navegação entre vistas ---------- */
+/* =====================================================================
+   Navegação e confirmação
+   ===================================================================== */
 
 function mostrarVista(vista) {
   document.getElementById("lista-vista").classList.toggle("oculto", vista !== "lista");
   document.getElementById("editor-vista").classList.toggle("oculto", vista !== "editor");
   document.getElementById("usar-vista").classList.toggle("oculto", vista !== "usar");
+  window.scrollTo(0, 0);
 }
 
-/* ---------- Lista de templates ---------- */
+// Substitui window.confirm(), que não funciona dentro dos add-ins do Office
+function confirmar(mensagem, textoSim = "Eliminar") {
+  return new Promise(resolve => {
+    const modal = document.getElementById("modal-confirmar");
+    const sim = document.getElementById("btn-confirmar-sim");
+    const nao = document.getElementById("btn-confirmar-nao");
+    document.getElementById("confirmar-msg").textContent = mensagem;
+    sim.textContent = textoSim;
+    modal.classList.remove("oculto");
+
+    const fechar = (resultado) => {
+      modal.classList.add("oculto");
+      sim.onclick = null;
+      nao.onclick = null;
+      resolve(resultado);
+    };
+    sim.onclick = () => fechar(true);
+    nao.onclick = () => fechar(false);
+    nao.focus();
+  });
+}
+
+/* =====================================================================
+   Lista de templates
+   ===================================================================== */
+
+function ordenarTemplates(lista) {
+  const modo = prefs.ordenacao;
+  return lista.slice().sort((a, b) => {
+    if (a.favorito !== b.favorito) return a.favorito ? -1 : 1;
+    if (modo === "usados" && b.usos !== a.usos) return b.usos - a.usos;
+    if (modo === "recentes" && b.ultimoUso !== a.ultimoUso) return b.ultimoUso - a.ultimoUso;
+    return a.nome.localeCompare(b.nome, "pt");
+  });
+}
 
 function renderLista() {
   const container = document.getElementById("lista-templates");
   container.innerHTML = "";
 
-  const termoPesquisa = document.getElementById("pesquisa").value.trim().toLowerCase();
+  const termo = document.getElementById("pesquisa").value.trim().toLowerCase();
   const categoriaFiltro = document.getElementById("filtro-categoria").value;
-  const btnLimpar = document.getElementById("btn-limpar-pesquisa");
 
-  if (btnLimpar) {
-    btnLimpar.classList.toggle("oculto", !termoPesquisa);
-  }
+  document.getElementById("btn-limpar-pesquisa").classList.toggle("oculto", !termo);
+  document.getElementById("btn-exportar").textContent = categoriaFiltro
+    ? `Exportar "${categoriaFiltro}"`
+    : "Exportar Backup";
 
   const filtrados = templates.filter(t => {
-    const correspondeTexto = !termoPesquisa ||
-      t.nome.toLowerCase().includes(termoPesquisa) ||
-      t.assunto.toLowerCase().includes(termoPesquisa) ||
-      (t.corpo && t.corpo.toLowerCase().includes(termoPesquisa)) ||
-      (t.categoria && t.categoria.toLowerCase().includes(termoPesquisa)) ||
-      (t.para && t.para.toLowerCase().includes(termoPesquisa)) ||
-      (t.cc && t.cc.toLowerCase().includes(termoPesquisa)) ||
-      (t.bcc && t.bcc.toLowerCase().includes(termoPesquisa));
-
     const correspondeCategoria = !categoriaFiltro || t.categoria === categoriaFiltro;
-
-    return correspondeTexto && correspondeCategoria;
+    if (!correspondeCategoria) return false;
+    if (!termo) return true;
+    return [t.nome, t.assunto, htmlParaTexto(t.corpo), t.categoria, t.para, t.cc, t.bcc]
+      .some(campo => (campo || "").toLowerCase().includes(termo));
   });
 
   if (filtrados.length === 0) {
-    if (templates.length === 0) {
-      container.innerHTML = `<p class="ajuda">Sem templates. Cria o primeiro com "+ Novo".</p>`;
-    } else {
-      container.innerHTML = `<p class="ajuda">Nenhum template encontrado para os filtros selecionados.</p>`;
-    }
+    container.innerHTML = templates.length === 0
+      ? `<p class="ajuda">Sem templates. Cria o primeiro com "+ Novo".</p>`
+      : `<p class="ajuda">Nenhum template encontrado para os filtros selecionados.</p>`;
     return;
   }
 
-  filtrados.forEach(t => {
+  ordenarTemplates(filtrados).forEach(t => {
+    const id = escapeHtml(t.id);
     const card = document.createElement("div");
     card.className = "cartao-template";
     card.innerHTML = `
       <div class="cartao-header">
+        <button class="btn-fav${t.favorito ? " ativo" : ""}" data-acao="favorito" data-id="${id}"
+          title="${t.favorito ? "Remover dos favoritos" : "Marcar como favorito"}">${t.favorito ? "★" : "☆"}</button>
         <h3>${escapeHtml(t.nome)}</h3>
         <span class="badge-categoria">${escapeHtml(t.categoria || "Geral")}</span>
       </div>
       <p>${escapeHtml(t.assunto || "(Sem assunto)")}</p>
       <div class="cartao-acoes">
-        <button class="btn btn-primary" data-acao="usar" data-id="${t.id}">Usar</button>
-        <button class="btn btn-secondary" data-acao="editar" data-id="${t.id}">Editar</button>
+        <button class="btn btn-primary" data-acao="usar" data-id="${id}">Usar</button>
+        <button class="btn btn-secondary" data-acao="editar" data-id="${id}">Editar</button>
+        <button class="btn btn-secondary" data-acao="duplicar" data-id="${id}" title="Criar uma cópia deste template">Duplicar</button>
+        ${t.usos ? `<span class="contagem-usos" title="Vezes usado">${t.usos}×</span>` : ""}
       </div>
     `;
     container.appendChild(card);
   });
 }
 
-/* ---------- Editor de template ---------- */
+async function alternarFavorito(id) {
+  const t = templates.find(x => x.id === id);
+  if (!t) return;
+  t.favorito = !t.favorito;
+  await guardarTemplates();
+  renderLista();
+}
+
+async function duplicarTemplate(id) {
+  const t = templates.find(x => x.id === id);
+  if (!t) return;
+  const copia = normalizarTemplate(Object.assign({}, t, {
+    id: novoId(),
+    nome: `${t.nome} (cópia)`,
+    favorito: false,
+    usos: 0,
+    ultimoUso: 0
+  }));
+  templates.push(copia);
+  if (!(await guardarTemplates())) { renderLista(); return; }
+  renderLista();
+  abrirEditorExistente(copia.id);
+  mostrarEstado("Template duplicado — podes editar a cópia agora.");
+}
+
+/* =====================================================================
+   Editor de template (texto com formatação)
+   ===================================================================== */
+
+function editorEl() {
+  return document.getElementById("edit-corpo");
+}
+
+function guardarRangeEditor() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0);
+  if (editorEl().contains(r.commonAncestorContainer)) ultimoRangeEditor = r.cloneRange();
+}
+
+function restaurarRange(range) {
+  const editor = editorEl();
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  if (range && editor.contains(range.commonAncestorContainer)) {
+    sel.addRange(range);
+  } else {
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.collapse(false);
+    sel.addRange(r);
+  }
+}
+
+function selecaoDentroEditor() {
+  const sel = window.getSelection();
+  return Boolean(sel && sel.rangeCount && editorEl().contains(sel.getRangeAt(0).commonAncestorContainer));
+}
+
+function executarComando(cmd, valor = null) {
+  const editor = editorEl();
+  // Usa a seleção atual se estiver no editor; senão, a última que lá esteve
+  const dentro = selecaoDentroEditor();
+  editor.focus();
+  if (!dentro) restaurarRange(ultimoRangeEditor);
+  document.execCommand(cmd, false, valor);
+  guardarRangeEditor();
+  atualizarVarsDetetadas();
+}
+
+function inserirTagVariavel(varNome) {
+  executarComando("insertText", `{{${varNome}}}`);
+}
+
+function abrirLinhaLink() {
+  guardarRangeEditor();
+  rangeLink = ultimoRangeEditor ? ultimoRangeEditor.cloneRange() : null;
+  document.getElementById("link-row").classList.remove("oculto");
+  const input = document.getElementById("link-url");
+  input.value = "";
+  input.focus();
+}
+
+function fecharLinhaLink() {
+  document.getElementById("link-row").classList.add("oculto");
+  rangeLink = null;
+}
+
+function aplicarLink() {
+  let url = document.getElementById("link-url").value.trim();
+  const range = rangeLink;
+  fecharLinhaLink();
+  if (!url) return;
+  if (!/^(https?:|mailto:)/i.test(url)) {
+    url = (url.includes("@") && !url.includes("/") ? "mailto:" : "https://") + url;
+  }
+  const editor = editorEl();
+  editor.focus();
+  restaurarRange(range);
+  if (range && !range.collapsed) {
+    document.execCommand("createLink", false, url);
+  } else {
+    const texto = url.replace(/^mailto:/i, "");
+    document.execCommand("insertHTML", false, `<a href="${escapeHtml(url)}">${escapeHtml(texto)}</a>`);
+  }
+  guardarRangeEditor();
+  atualizarVarsDetetadas();
+}
+
+function colarNoEditor(e) {
+  const dados = e.clipboardData || window.clipboardData;
+  if (!dados) return;
+  e.preventDefault();
+  const html = dados.getData("text/html");
+  if (html) {
+    // Mantém negrito, listas e links; remove estilos, imagens e lixo do Word
+    document.execCommand("insertHTML", false, sanitizarHtml(html));
+  } else {
+    document.execCommand("insertText", false, dados.getData("text/plain"));
+  }
+  atualizarVarsDetetadas();
+}
+
+function preencherEditor(t) {
+  document.getElementById("edit-nome").value = t ? t.nome : "";
+  document.getElementById("edit-categoria").value = t ? (t.categoria || "Geral") : "Geral";
+  document.getElementById("edit-para").value = t ? t.para : "";
+  document.getElementById("edit-cc").value = t ? t.cc : "";
+  document.getElementById("edit-bcc").value = t ? t.bcc : "";
+  document.getElementById("edit-assunto").value = t ? t.assunto : "";
+  editorEl().innerHTML = t ? t.corpo : "";
+  document.getElementById("edit-anexo").value = "";
+  ultimoRangeEditor = null;
+  anexoACarregar = false;
+  fecharLinhaLink();
+  atualizarAnexoAtualUI("Anexo atual");
+  atualizarDropdownCategorias();
+  atualizarVarsDetetadas();
+  mostrarVista("editor");
+}
 
 function abrirEditorNovo() {
   templateEmEdicao = null;
   anexoTemp = null;
   document.getElementById("editor-titulo").textContent = "Novo template";
-  document.getElementById("edit-nome").value = "";
-  document.getElementById("edit-categoria").value = "Geral";
-  document.getElementById("edit-para").value = "";
-  document.getElementById("edit-cc").value = "";
-  document.getElementById("edit-bcc").value = "";
-  document.getElementById("edit-assunto").value = "";
-  document.getElementById("edit-corpo").value = "";
-  document.getElementById("edit-anexo").value = "";
-  document.getElementById("anexo-atual").textContent = "";
   document.getElementById("btn-eliminar").classList.add("oculto");
-  atualizarDropdownCategorias();
-  atualizarVarsDetetadas();
-  mostrarVista("editor");
+  preencherEditor(null);
+  document.getElementById("edit-nome").focus();
 }
 
 function abrirEditorExistente(id) {
@@ -288,97 +710,68 @@ function abrirEditorExistente(id) {
   templateEmEdicao = id;
   anexoTemp = t.anexo || null;
   document.getElementById("editor-titulo").textContent = "Editar template";
-  document.getElementById("edit-nome").value = t.nome;
-  document.getElementById("edit-categoria").value = t.categoria || "Geral";
-  document.getElementById("edit-para").value = t.para || "";
-  document.getElementById("edit-cc").value = t.cc || "";
-  document.getElementById("edit-bcc").value = t.bcc || "";
-  document.getElementById("edit-assunto").value = t.assunto;
-  document.getElementById("edit-corpo").value = t.corpo;
-  document.getElementById("edit-anexo").value = "";
-  atualizarAnexoAtualUI("Anexo atual");
   document.getElementById("btn-eliminar").classList.remove("oculto");
-  atualizarDropdownCategorias();
-  atualizarVarsDetetadas();
-  mostrarVista("editor");
+  preencherEditor(t);
 }
 
-function extrairVariaveis(texto) {
-  const regex = /{{\s*([a-zA-Z0-9_]+)\s*}}/g;
-  const encontradas = new Set();
-  let m;
-  while ((m = regex.exec(texto)) !== null) {
-    encontradas.add(m[1]);
-  }
-  return [...encontradas];
+function descreverVariavel(v) {
+  if (v.opcoes.length) return `${v.nome} (lista: ${v.opcoes.join(", ")})`;
+  if (v.padrao) return `${v.nome} (= ${v.padrao})`;
+  return v.nome;
 }
 
 function atualizarVarsDetetadas() {
-  const assunto = document.getElementById("edit-assunto").value;
-  const corpo = document.getElementById("edit-corpo").value;
-  const para = document.getElementById("edit-para").value;
-  const cc = document.getElementById("edit-cc").value;
-  const bcc = document.getElementById("edit-bcc").value;
-
-  const vars = extrairVariaveis(`${assunto} ${corpo} ${para} ${cc} ${bcc}`);
-  document.getElementById("vars-detetadas").textContent = vars.length ? vars.join(", ") : "nenhuma";
+  const texto = [
+    document.getElementById("edit-assunto").value,
+    htmlParaTexto(editorEl().innerHTML),
+    document.getElementById("edit-para").value,
+    document.getElementById("edit-cc").value,
+    document.getElementById("edit-bcc").value
+  ].join(" ");
+  const vars = extrairVariaveis(texto);
+  document.getElementById("vars-detetadas").textContent = vars.length
+    ? vars.map(descreverVariavel).join(", ")
+    : "nenhuma";
 }
 
-function inserirTagVariavel(varNome) {
-  const textarea = document.getElementById("edit-corpo");
-  const tag = `{{${varNome}}}`;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const val = textarea.value;
-
-  if (start !== undefined && end !== undefined) {
-    textarea.value = val.substring(0, start) + tag + val.substring(end);
-    textarea.selectionStart = textarea.selectionEnd = start + tag.length;
-  } else {
-    textarea.value += " " + tag;
+async function guardarTemplateAtual() {
+  if (anexoACarregar) {
+    mostrarEstado("Aguarda que o anexo acabe de carregar.", true);
+    return;
   }
-  textarea.focus();
-  atualizarVarsDetetadas();
-}
 
-function guardarTemplateAtual() {
   const nome = document.getElementById("edit-nome").value.trim();
   const categoria = document.getElementById("edit-categoria").value.trim() || "Geral";
-  const para = document.getElementById("edit-para").value.trim();
-  const cc = document.getElementById("edit-cc").value.trim();
-  const bcc = document.getElementById("edit-bcc").value.trim();
-  const assunto = document.getElementById("edit-assunto").value.trim();
-  const corpo = document.getElementById("edit-corpo").value;
+  const dados = {
+    nome,
+    categoria,
+    para: document.getElementById("edit-para").value.trim(),
+    cc: document.getElementById("edit-cc").value.trim(),
+    bcc: document.getElementById("edit-bcc").value.trim(),
+    assunto: document.getElementById("edit-assunto").value.trim(),
+    corpo: sanitizarHtml(editorEl().innerHTML),
+    formato: "html",
+    anexo: anexoTemp
+  };
 
   if (!nome) {
     mostrarEstado("Dá um nome ao template.", true);
     return;
   }
 
-  if (!categoriasCustom.includes(categoria) && categoria !== "Geral") {
+  if (categoria !== "Geral" && !categoriasCustom.includes(categoria)) {
     categoriasCustom.push(categoria);
-    guardarCategorias();
+    await guardarCategorias();
   }
 
   if (templateEmEdicao) {
     const t = templates.find(x => x.id === templateEmEdicao);
-    t.nome = nome;
-    t.categoria = categoria;
-    t.para = para;
-    t.cc = cc;
-    t.bcc = bcc;
-    t.assunto = assunto;
-    t.corpo = corpo;
-    t.anexo = anexoTemp;
+    if (t) Object.assign(t, dados);
   } else {
-    templates.push({
-      id: "t_" + Date.now(),
-      nome, categoria, para, cc, bcc, assunto, corpo,
-      anexo: anexoTemp
-    });
+    templates.push(normalizarTemplate(Object.assign({ id: novoId() }, dados)));
   }
 
-  if (!guardarTemplates()) {
+  if (!(await guardarTemplates())) {
     // Fica no editor para o utilizador poder remover/trocar o anexo e tentar de novo
     renderLista();
     return;
@@ -389,17 +782,21 @@ function guardarTemplateAtual() {
   mostrarEstado("Template guardado.");
 }
 
-function eliminarTemplateAtual() {
+async function eliminarTemplateAtual() {
   if (!templateEmEdicao) return;
+  const t = templates.find(x => x.id === templateEmEdicao);
+  const ok = await confirmar(`Eliminar o template "${t ? t.nome : ""}"? Esta ação não pode ser desfeita.`);
+  if (!ok) return;
+
   templates = templates.filter(x => x.id !== templateEmEdicao);
-  guardarTemplates();
+  await guardarTemplates();
   atualizarDropdownCategorias();
   renderLista();
   mostrarVista("lista");
   mostrarEstado("Template eliminado.");
 }
 
-function atualizarAnexoAtualUI(prefixo) {
+function atualizarAnexoAtualUI(prefixo = "Anexo") {
   const el = document.getElementById("anexo-atual");
   el.innerHTML = "";
   if (!anexoTemp) return;
@@ -419,190 +816,183 @@ function removerAnexoTemplate() {
   atualizarAnexoAtualUI();
 }
 
-function lidarComAnexoSelecionado(ficheiro) {
-  if (!ficheiro) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const base64 = reader.result.split(",")[1];
-    anexoTemp = { nome: ficheiro.name, tipoConteudo: ficheiro.type || "application/octet-stream", base64 };
-    atualizarAnexoAtualUI("Anexo selecionado");
-  };
-  reader.readAsDataURL(ficheiro);
-}
-
-/* ---------- Resolução de Variáveis Pré-definidas Dinâmicas ---------- */
-
-function obterSaudacaoTempo() {
-  const agora = new Date();
-  const hora = agora.getHours();
-  const min = agora.getMinutes();
-  const minTotais = hora * 60 + min;
-
-  // 05:00 até às 13:49 (inclusive) -> Bom dia
-  if (minTotais >= 5 * 60 && minTotais <= 13 * 60 + 49) {
-    return "Bom dia, ";
-  }
-  // 13:50 até às 19:59 (inclusive) -> Boa tarde
-  if (minTotais >= 13 * 60 + 50 && minTotais < 20 * 60) {
-    return "Boa tarde, ";
-  }
-  // 20:00 às 04:59 -> Boa noite
-  return "Boa noite, ";
-}
-
-function obterValoresPreDefinidosAsync() {
-  return new Promise((resolve) => {
-    const agora = new Date();
-    const dataFormatted = agora.toLocaleDateString("pt-PT");
-    const horaFormatted = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-    const cumprimentoCalculado = obterSaudacaoTempo();
-
-    const valores = {
-      cumprimento: cumprimentoCalculado,
-      cumprimentos: cumprimentoCalculado,
-      saudacao: cumprimentoCalculado,
-      saudacao_tempo: cumprimentoCalculado,
-      bom_dia_boa_tarde: cumprimentoCalculado,
-      data_atual: dataFormatted,
-      data: dataFormatted,
-      hora_atual: horaFormatted,
-      hora: horaFormatted,
-      numdoc: "",
-      num_doc: "",
-      numero_documento: "",
-      remetente_nome: "",
-      remetente_email: "",
-      destinatario_nome: "",
-      destinatario_email: ""
-    };
-
-    try {
-      if (Office.context && Office.context.mailbox && Office.context.mailbox.userProfile) {
-        valores.remetente_nome = Office.context.mailbox.userProfile.displayName || "";
-        valores.remetente_email = Office.context.mailbox.userProfile.emailAddress || "";
-      }
-    } catch (e) {
-      console.warn("Não foi possível obter o perfil do utilizador:", e);
-    }
-
-    try {
-      const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
-      if (item && item.to && typeof item.to.getAsync === "function") {
-        item.to.getAsync((res) => {
-          if (res.status === Office.AsyncResultStatus.Succeeded && res.value && res.value.length > 0) {
-            const primeiroRec = res.value[0];
-            valores.destinatario_nome = primeiroRec.displayName || primeiroRec.emailAddress || "";
-            valores.destinatario_email = primeiroRec.emailAddress || "";
-          }
-          resolve(valores);
-        });
-        return;
-      }
-    } catch (e) {
-      console.warn("Não foi possível obter destinatários:", e);
-    }
-
-    resolve(valores);
+function lerFicheiroBase64(ficheiro) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      nome: ficheiro.name,
+      tipoConteudo: ficheiro.type || "application/octet-stream",
+      base64: String(reader.result).split(",")[1] || ""
+    });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(ficheiro);
   });
 }
 
-/* ---------- Usar template ---------- */
+async function lidarComAnexoSelecionado(ficheiro) {
+  if (!ficheiro) return;
+  anexoACarregar = true;
+  document.getElementById("anexo-atual").textContent = "A carregar…";
+  try {
+    anexoTemp = await lerFicheiroBase64(ficheiro);
+    atualizarAnexoAtualUI("Anexo selecionado");
+  } catch (e) {
+    mostrarEstado("Não foi possível ler o ficheiro.", true);
+    atualizarAnexoAtualUI("Anexo atual");
+  } finally {
+    anexoACarregar = false;
+  }
+}
+
+/* =====================================================================
+   Usar template
+   ===================================================================== */
 
 async function abrirUsarTemplate(id) {
   const t = templates.find(x => x.id === id);
   if (!t) return;
   templateAUsar = t;
+  const leitura = modoLeitura();
 
   document.getElementById("usar-titulo").textContent = `Usar: ${t.nome}`;
-
-  // Preencher destinatários (Para / CC / BCC)
   document.getElementById("usar-para").value = t.para || "";
   document.getElementById("usar-cc").value = t.cc || "";
   document.getElementById("usar-bcc").value = t.bcc || "";
 
-  const todoOTexto = `${t.assunto} ${t.corpo} ${t.para || ""} ${t.cc || ""} ${t.bcc || ""}`;
-  const vars = extrairVariaveis(todoOTexto);
+  document.getElementById("usar-nota-leitura").classList.toggle("oculto", !leitura);
+  document.getElementById("usar-seccao-destinatarios").classList.toggle("oculto", leitura);
+  document.getElementById("usar-seccao-anexo-extra").classList.toggle("oculto", leitura);
+  document.getElementById("usar-modo-insercao").classList.toggle("oculto", leitura);
+  document.getElementById("btn-inserir").classList.toggle("oculto", leitura);
+  document.getElementById("btn-responder").classList.toggle("oculto", !leitura);
+  document.getElementById("btn-responder-todos").classList.toggle("oculto", !leitura);
+
+  const radio = document.querySelector(`input[name="modo-insercao"][value="${prefs.modoInsercao}"]`);
+  if (radio) radio.checked = true;
+
+  // Ao responder, só o corpo é aplicado
+  const textoVars = leitura
+    ? htmlParaTexto(t.corpo)
+    : [t.assunto, htmlParaTexto(t.corpo), t.para, t.cc, t.bcc].join(" ");
+  varsAUsar = extrairVariaveis(textoVars);
 
   const container = document.getElementById("usar-campos");
   container.innerHTML = "<p class='ajuda'>A carregar dados do email…</p>";
 
   anexosExtraUso = [];
+  anexosExtraACarregar = false;
   document.getElementById("usar-anexo-extra").value = "";
   document.getElementById("usar-anexo-extra-lista").textContent = "";
 
   const anexoFixoEl = document.getElementById("usar-anexo-fixo");
   if (t.anexo) {
-    anexoFixoEl.textContent = `Anexo fixo deste template: ${t.anexo.nome}`;
+    anexoFixoEl.textContent = leitura
+      ? `Anexo fixo (não incluído na resposta): ${t.anexo.nome}`
+      : `Anexo fixo deste template: ${t.anexo.nome}`;
     anexoFixoEl.classList.remove("oculto");
   } else {
     anexoFixoEl.classList.add("oculto");
   }
 
-  const valoresPreDefinidos = await obterValoresPreDefinidosAsync();
-
+  mostrarVista("usar");
+  const preDefinidos = await obterValoresPreDefinidosAsync();
   container.innerHTML = "";
 
-  if (vars.length === 0) {
-    container.innerHTML = `<p class="ajuda">Este template não tem variáveis de substituição. Clica em "Inserir no email" para aplicar.</p>`;
-  } else {
-    vars.forEach(v => {
-      const div = document.createElement("div");
-      div.className = "campo-variavel";
-
-      const vKeyLower = v.toLowerCase();
-      const valDefault = valoresPreDefinidos[vKeyLower] !== undefined ? valoresPreDefinidos[vKeyLower] : "";
-      const isAuto = Boolean(valDefault);
-
-      let labelTexto = escapeHtml(v);
-      let placeholderTexto = `Valor para {{${escapeHtml(v)}}}`;
-
-      if (vKeyLower === "numdoc" || vKeyLower === "num_doc" || vKeyLower === "numero_documento") {
-        labelTexto = `${escapeHtml(v)} (Número do Documento)`;
-        placeholderTexto = "Ex.: FT 2026/001, Orçamento nº...";
-      } else if (vKeyLower === "cumprimento" || vKeyLower === "cumprimentos") {
-        labelTexto = "Cumprimento";
-      }
-
-      div.innerHTML = `
-        <div class="campo-variavel-header">
-          <label for="var-field-${escapeHtml(v)}">${labelTexto}</label>
-          ${isAuto ? `<span class="badge-auto">Preenchido auto</span>` : ""}
-        </div>
-        <input id="var-field-${escapeHtml(v)}" type="text" data-var="${escapeHtml(v)}" value="${escapeHtml(valDefault)}" placeholder="${placeholderTexto}" />
-      `;
-      container.appendChild(div);
-    });
+  if (varsAUsar.length === 0) {
+    container.innerHTML = `<p class="ajuda">Este template não tem variáveis de substituição.</p>`;
   }
 
-  mostrarVista("usar");
+  varsAUsar.forEach((v, i) => {
+    const k = v.nome.toLowerCase();
+    const auto = valorAutomatico(k, preDefinidos);
+    const inicial = v.padrao || auto || "";
+    v.auto = Boolean(auto) && !v.padrao;
+
+    let label = v.nome;
+    let placeholder = `Valor para {{${v.nome}}}`;
+    if (["numdoc", "num_doc", "numero_documento"].includes(k)) {
+      label = `${v.nome} (Número do Documento)`;
+      placeholder = "Ex.: FT 2026/001, Orçamento nº...";
+    } else if (k === "cumprimento" || k === "cumprimentos") {
+      label = "Cumprimento";
+    }
+
+    const idCampo = `var-campo-${i}`;
+    let controlo;
+    let badge = v.auto ? `<span class="badge-auto">Preenchido auto</span>` : "";
+
+    if (v.opcoes.length) {
+      controlo = `<select id="${idCampo}" class="select-categoria" data-var="${escapeHtml(v.nome)}">
+        ${v.opcoes.map(o => `<option value="${escapeHtml(o)}"${o === inicial ? " selected" : ""}>${escapeHtml(o)}</option>`).join("")}
+      </select>`;
+    } else {
+      const sugestoes = v.auto ? [] : (recentes[k] || []);
+      if (sugestoes.length && !badge) badge = `<span class="badge-recente" title="Clica no campo para ver os últimos valores usados">Recentes</span>`;
+      const datalist = sugestoes.length
+        ? `<datalist id="${idCampo}-rec">${sugestoes.map(s => `<option value="${escapeHtml(s)}"></option>`).join("")}</datalist>`
+        : "";
+      controlo = `<input id="${idCampo}" type="text" data-var="${escapeHtml(v.nome)}" value="${escapeHtml(inicial)}"
+        placeholder="${escapeHtml(placeholder)}" autocomplete="off"${sugestoes.length ? ` list="${idCampo}-rec"` : ""} />${datalist}`;
+    }
+
+    const div = document.createElement("div");
+    div.className = "campo-variavel";
+    div.innerHTML = `
+      <div class="campo-variavel-header">
+        <label for="${idCampo}">${escapeHtml(label)}</label>
+        ${badge}
+      </div>
+      ${controlo}
+    `;
+    container.appendChild(div);
+  });
+
+  atualizarPreview();
 }
 
-function lidarComAnexosExtra(ficheiros) {
-  anexosExtraUso = [];
+function recolherValores() {
+  const valores = {};
+  document.querySelectorAll("#usar-campos [data-var]").forEach(el => { valores[el.dataset.var] = el.value; });
+  return valores;
+}
+
+function construirResultado() {
+  const valores = recolherValores();
+  return {
+    valores,
+    assunto: substituirVariaveis(templateAUsar.assunto, valores, false),
+    corpoHtml: substituirVariaveis(templateAUsar.corpo, valores, true),
+    para: substituirVariaveis(document.getElementById("usar-para").value, valores, false),
+    cc: substituirVariaveis(document.getElementById("usar-cc").value, valores, false),
+    bcc: substituirVariaveis(document.getElementById("usar-bcc").value, valores, false)
+  };
+}
+
+function atualizarPreview() {
+  if (!templateAUsar) return;
+  const r = construirResultado();
+  document.getElementById("preview-assunto").textContent = modoLeitura()
+    ? "Resposta (o assunto mantém-se)"
+    : `Assunto: ${r.assunto || "(sem assunto)"}`;
+  document.getElementById("preview-corpo").innerHTML = sanitizarHtml(r.corpoHtml) || "<em>(corpo vazio)</em>";
+}
+
+async function lidarComAnexosExtra(ficheiros) {
   const lista = document.getElementById("usar-anexo-extra-lista");
+  anexosExtraUso = [];
+  anexosExtraACarregar = true;
   lista.textContent = "A carregar…";
-
-  const leituras = Array.from(ficheiros).map(ficheiro => new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result.split(",")[1];
-      resolve({ nome: ficheiro.name, tipoConteudo: ficheiro.type || "application/octet-stream", base64 });
-    };
-    reader.readAsDataURL(ficheiro);
-  }));
-
-  Promise.all(leituras).then(resultados => {
-    anexosExtraUso = resultados;
-    lista.textContent = resultados.length
-      ? `A anexar: ${resultados.map(a => a.nome).join(", ")}`
+  try {
+    anexosExtraUso = await Promise.all(Array.from(ficheiros).map(lerFicheiroBase64));
+    lista.textContent = anexosExtraUso.length
+      ? `A anexar: ${anexosExtraUso.map(a => a.nome).join(", ")}`
       : "";
-  });
-}
-
-function substituirVariaveis(texto, valores) {
-  return (texto || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (match, nome) => {
-    return valores[nome] !== undefined ? valores[nome] : match;
-  });
+  } catch (e) {
+    lista.textContent = "";
+    mostrarEstado("Não foi possível ler um dos ficheiros.", true);
+  } finally {
+    anexosExtraACarregar = false;
+  }
 }
 
 function parseEmailsParaDestinatarios(str) {
@@ -613,128 +1003,158 @@ function parseEmailsParaDestinatarios(str) {
     .map(email => ({ emailAddress: email }));
 }
 
-function inserirTemplateNoEmail() {
-  if (!templateAUsar) return;
-
-  const inputs = document.querySelectorAll("#usar-campos input[data-var]");
-  const valores = {};
-  inputs.forEach(inp => { valores[inp.dataset.var] = inp.value; });
-
-  const assuntoFinal = substituirVariaveis(templateAUsar.assunto, valores);
-  const corpoFinal = substituirVariaveis(templateAUsar.corpo, valores);
-  // O corpo é texto simples: escapar < > & para não ser interpretado como HTML
-  const corpoHtml = escapeHtml(corpoFinal).replace(/\r?\n/g, "<br>");
-
-  const paraFinal = substituirVariaveis(document.getElementById("usar-para").value, valores);
-  const ccFinal = substituirVariaveis(document.getElementById("usar-cc").value, valores);
-  const bccFinal = substituirVariaveis(document.getElementById("usar-bcc").value, valores);
-
-  const paraRecipients = parseEmailsParaDestinatarios(paraFinal);
-  const ccRecipients = parseEmailsParaDestinatarios(ccFinal);
-  const bccRecipients = parseEmailsParaDestinatarios(bccFinal);
-
-  const item = Office.context.mailbox.item;
-
-  const tarefas = [];
-
-  // Assunto
-  tarefas.push(new Promise((resolve, reject) => {
-    if (!assuntoFinal) { resolve(); return; }
-    item.subject.setAsync(assuntoFinal, res => {
-      res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-    });
-  }));
-
-  // Corpo
-  tarefas.push(new Promise((resolve, reject) => {
-    item.body.setSelectedDataAsync(corpoHtml, { coercionType: Office.CoercionType.Html }, res => {
-      res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-    });
-  }));
-
-  // Destinatários Para
-  if (paraRecipients.length > 0 && item && item.to && typeof item.to.addAsync === "function") {
-    tarefas.push(new Promise((resolve, reject) => {
-      item.to.addAsync(paraRecipients, res => {
-        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-      });
-    }));
-  }
-
-  // Destinatários CC
-  if (ccRecipients.length > 0 && item && item.cc && typeof item.cc.addAsync === "function") {
-    tarefas.push(new Promise((resolve, reject) => {
-      item.cc.addAsync(ccRecipients, res => {
-        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-      });
-    }));
-  }
-
-  // Destinatários BCC
-  if (bccRecipients.length > 0 && item && item.bcc && typeof item.bcc.addAsync === "function") {
-    tarefas.push(new Promise((resolve, reject) => {
-      item.bcc.addAsync(bccRecipients, res => {
-        res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-      });
-    }));
-  }
-
-  const todosAnexos = [];
-  if (templateAUsar.anexo) todosAnexos.push(templateAUsar.anexo);
-  todosAnexos.push(...anexosExtraUso);
-
-  function anexarUmAUm(lista) {
-    if (lista.length === 0) return Promise.resolve();
-    const [anexo, ...resto] = lista;
-    return new Promise((resolve, reject) => {
-      item.addFileAttachmentFromBase64Async(
-        anexo.base64,
-        anexo.nome,
-        { isInline: false },
-        res => {
-          res.status === Office.AsyncResultStatus.Succeeded ? resolve() : reject(res.error);
-        }
-      );
-    }).then(() => anexarUmAUm(resto));
-  }
-
-  Promise.all(tarefas)
-    .then(() => anexarUmAUm(todosAnexos))
-    .then(() => {
-      mostrarEstado("Template e destinatários inseridos no email!");
-      mostrarVista("lista");
-    })
-    .catch(err => {
-      console.error(err);
-      mostrarEstado("Erro ao inserir template. Garante que estás a compor um email.", true);
-    });
+function chamarAsync(fn) {
+  return new Promise((resolve, reject) => {
+    fn(res => (res.status === Office.AsyncResultStatus.Succeeded ? resolve(res.value) : reject(res.error)));
+  });
 }
 
-/* ---------- Exportar / Importar Backups ---------- */
+async function registarUtilizacao(valores) {
+  const t = templates.find(x => x.id === templateAUsar.id);
+  if (t) {
+    t.usos = (t.usos || 0) + 1;
+    t.ultimoUso = Date.now();
+  }
+
+  varsAUsar.forEach(v => {
+    if (v.auto || v.opcoes.length) return;
+    const valor = String(valores[v.nome] || "").trim();
+    if (!valor || valor === v.padrao) return;
+    const k = v.nome.toLowerCase();
+    recentes[k] = [valor, ...(recentes[k] || []).filter(x => x !== valor)].slice(0, MAX_RECENTES);
+  });
+
+  await Promise.all([guardarTemplates(), guardarRecentes()]);
+  renderLista();
+}
+
+async function inserirTemplateNoEmail() {
+  if (!templateAUsar) return;
+  if (anexosExtraACarregar) {
+    mostrarEstado("Aguarda que os anexos acabem de carregar.", true);
+    return;
+  }
+
+  const item = obterItem();
+  if (!item || !item.body || typeof item.body.setSelectedDataAsync !== "function") {
+    mostrarEstado("Abre uma mensagem nova (ou uma resposta) para inserir o template.", true);
+    return;
+  }
+
+  const r = construirResultado();
+  const modoEl = document.querySelector('input[name="modo-insercao"]:checked');
+  const modo = modoEl ? modoEl.value : "cursor";
+  if (prefs.modoInsercao !== modo) {
+    prefs.modoInsercao = modo;
+    guardarPrefs();
+  }
+
+  const opcoesHtml = { coercionType: Office.CoercionType.Html };
+  const tarefas = [];
+
+  if (r.assunto) tarefas.push(chamarAsync(cb => item.subject.setAsync(r.assunto, cb)));
+
+  if (modo === "substituir") {
+    tarefas.push(chamarAsync(cb => item.body.setAsync(r.corpoHtml, opcoesHtml, cb)));
+  } else if (modo === "inicio") {
+    tarefas.push(chamarAsync(cb => item.body.prependAsync(r.corpoHtml, opcoesHtml, cb)));
+  } else {
+    tarefas.push(chamarAsync(cb => item.body.setSelectedDataAsync(r.corpoHtml, opcoesHtml, cb)));
+  }
+
+  [["to", r.para], ["cc", r.cc], ["bcc", r.bcc]].forEach(([campo, texto]) => {
+    const lista = parseEmailsParaDestinatarios(texto);
+    if (lista.length && item[campo] && typeof item[campo].addAsync === "function") {
+      tarefas.push(chamarAsync(cb => item[campo].addAsync(lista, cb)));
+    }
+  });
+
+  try {
+    await Promise.all(tarefas);
+
+    const anexos = [];
+    if (templateAUsar.anexo) anexos.push(templateAUsar.anexo);
+    anexos.push(...anexosExtraUso);
+    for (const anexo of anexos) {
+      await chamarAsync(cb => item.addFileAttachmentFromBase64Async(anexo.base64, anexo.nome, { isInline: false }, cb));
+    }
+
+    await registarUtilizacao(r.valores);
+    mostrarVista("lista");
+    mostrarEstado("Template inserido no email!");
+  } catch (err) {
+    console.error(err);
+    mostrarEstado(`Erro ao inserir template${err && err.message ? `: ${err.message}` : "."}`, true);
+  }
+}
+
+async function responderComTemplate(todos) {
+  if (!templateAUsar) return;
+  const item = obterItem();
+  if (!item || typeof item.displayReplyForm !== "function") {
+    mostrarEstado("Abre um email recebido para responder com o template.", true);
+    return;
+  }
+
+  const r = construirResultado();
+  try {
+    const formulario = { htmlBody: r.corpoHtml };
+    if (todos) item.displayReplyAllForm(formulario);
+    else item.displayReplyForm(formulario);
+    await registarUtilizacao(r.valores);
+    mostrarVista("lista");
+    mostrarEstado("Resposta aberta com o template.");
+  } catch (err) {
+    console.error(err);
+    mostrarEstado("Não foi possível abrir a resposta.", true);
+  }
+}
+
+/* =====================================================================
+   Exportar / Importar
+   ===================================================================== */
+
+function slug(texto) {
+  return String(texto).normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "categoria";
+}
 
 function exportarTemplates() {
-  if (templates.length === 0) {
+  const categoria = document.getElementById("filtro-categoria").value;
+  const lista = categoria ? templates.filter(t => t.categoria === categoria) : templates;
+
+  if (lista.length === 0) {
     mostrarEstado("Não existem templates para exportar.", true);
     return;
   }
 
   const payload = {
-    versao: "1.2",
+    versao: "2.0",
     dataExportacao: new Date().toISOString(),
-    totalTemplates: templates.length,
-    categoriasCustom: categoriasCustom,
-    templates: templates
+    categoria: categoria || null,
+    totalTemplates: lista.length,
+    categoriasCustom: categoria ? [categoria] : categoriasCustom,
+    templates: lista
   };
 
-  const jsonStr = JSON.stringify(payload, null, 2);
-  const blob = new Blob([jsonStr], { type: "application/json" });
+  const data = new Date().toISOString().slice(0, 10);
+  const nomeFicheiro = categoria
+    ? `os-meus-templates-${slug(categoria)}-${data}.json`
+    : `os-meus-templates-backup-${data}.json`;
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `os-meus-templates-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = nomeFicheiro;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
-  mostrarEstado("Backup exportado com sucesso.");
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+  mostrarEstado(categoria
+    ? `Exportados ${lista.length} template(s) da categoria "${categoria}".`
+    : "Backup exportado com sucesso.");
 }
 
 function processarFicheiroImportar(ficheiro) {
@@ -749,37 +1169,24 @@ function processarFicheiroImportar(ficheiro) {
         listaImportada = conteudo;
       } else if (conteudo && Array.isArray(conteudo.templates)) {
         listaImportada = conteudo.templates;
-        if (Array.isArray(conteudo.categoriasCustom)) {
-          catsImportadas = conteudo.categoriasCustom;
-        }
+        if (Array.isArray(conteudo.categoriasCustom)) catsImportadas = conteudo.categoriasCustom;
       } else {
         throw new Error("Formato inválido");
       }
 
       if (listaImportada.length === 0) {
-        mostrarEstado("O ficheiro de backup não contém nenhum template validado.", true);
+        mostrarEstado("O ficheiro de backup não contém nenhum template.", true);
         return;
       }
 
       backupImportarTemp = {
-        templates: listaImportada.map(t => ({
-          id: "t_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-          nome: t.nome || "Template Sem Nome",
-          categoria: t.categoria || "Geral",
-          para: t.para || "",
-          cc: t.cc || "",
-          bcc: t.bcc || "",
-          assunto: t.assunto || "",
-          corpo: t.corpo || "",
-          anexo: t.anexo || null
-        })),
-        categoriasCustom: catsImportadas
+        templates: listaImportada.map(t => normalizarTemplate(Object.assign({}, t, { id: novoId() }))),
+        categoriasCustom: catsImportadas.filter(c => typeof c === "string" && c.trim())
       };
 
       document.getElementById("modal-importar-info").textContent =
         `Ficheiro validado! Encontrados ${backupImportarTemp.templates.length} template(s).`;
       document.getElementById("modal-importar").classList.remove("oculto");
-
     } catch (e) {
       mostrarEstado("Ficheiro JSON de backup inválido.", true);
     }
@@ -787,42 +1194,43 @@ function processarFicheiroImportar(ficheiro) {
   reader.readAsText(ficheiro);
 }
 
-function executarImportacao(modo) {
+async function executarImportacao(modo) {
   if (!backupImportarTemp) return;
+  const importados = backupImportarTemp;
+  backupImportarTemp = null;
+  document.getElementById("modal-importar").classList.add("oculto");
 
   const categoriasAntes = [...categoriasCustom];
 
   if (modo === "unir") {
-    templates = templates.concat(backupImportarTemp.templates);
-    backupImportarTemp.categoriasCustom.forEach(c => {
+    templates = templates.concat(importados.templates);
+    importados.categoriasCustom.forEach(c => {
       if (!categoriasCustom.includes(c)) categoriasCustom.push(c);
     });
-    mostrarEstado(`${backupImportarTemp.templates.length} template(s) unidos com sucesso!`);
-  } else if (modo === "substituir") {
-    templates = backupImportarTemp.templates;
-    if (backupImportarTemp.categoriasCustom.length) {
-      categoriasCustom = backupImportarTemp.categoriasCustom;
-    }
-    mostrarEstado(`Biblioteca substituída com ${backupImportarTemp.templates.length} template(s).`);
+  } else {
+    templates = importados.templates;
+    if (importados.categoriasCustom.length) categoriasCustom = importados.categoriasCustom;
   }
 
-  backupImportarTemp = null;
-  document.getElementById("modal-importar").classList.add("oculto");
-
-  if (!guardarTemplates()) {
+  if (await guardarTemplates()) {
+    await guardarCategorias();
+    mostrarEstado(modo === "unir"
+      ? `${importados.templates.length} template(s) unidos com sucesso!`
+      : `Biblioteca substituída com ${importados.templates.length} template(s).`);
+  } else {
     // Importação revertida (guardarTemplates já repôs os templates e avisou)
     categoriasCustom = categoriasAntes;
-  } else {
-    guardarCategorias();
   }
   atualizarDropdownCategorias();
   renderLista();
 }
 
-/* ---------- Utilitários ---------- */
+/* =====================================================================
+   Utilitários
+   ===================================================================== */
 
 function escapeHtml(str) {
-  return String(str || "")
+  return String(str == null ? "" : str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -837,92 +1245,139 @@ function mostrarEstado(msg, erro = false) {
   el.classList.toggle("erro", erro);
   el.classList.remove("oculto");
   clearTimeout(estadoTimeout);
-  estadoTimeout = setTimeout(() => el.classList.add("oculto"), 3500);
+  estadoTimeout = setTimeout(() => el.classList.add("oculto"), erro ? 5000 : 3500);
 }
 
-/* ---------- Eventos ---------- */
+/* =====================================================================
+   Eventos
+   ===================================================================== */
 
 function ligarEventos() {
-  document.getElementById("btn-novo").addEventListener("click", abrirEditorNovo);
-  document.getElementById("btn-cancelar").addEventListener("click", () => mostrarVista("lista"));
-  document.getElementById("btn-guardar").addEventListener("click", guardarTemplateAtual);
-  document.getElementById("btn-eliminar").addEventListener("click", eliminarTemplateAtual);
-  document.getElementById("btn-usar-cancelar").addEventListener("click", () => mostrarVista("lista"));
-  document.getElementById("btn-inserir").addEventListener("click", inserirTemplateNoEmail);
+  const porId = id => document.getElementById(id);
 
-  document.getElementById("edit-assunto").addEventListener("input", atualizarVarsDetetadas);
-  document.getElementById("edit-corpo").addEventListener("input", atualizarVarsDetetadas);
-  document.getElementById("edit-para").addEventListener("input", atualizarVarsDetetadas);
-  document.getElementById("edit-cc").addEventListener("input", atualizarVarsDetetadas);
-  document.getElementById("edit-bcc").addEventListener("input", atualizarVarsDetetadas);
-  document.getElementById("edit-anexo").addEventListener("change", e => lidarComAnexoSelecionado(e.target.files[0]));
-  document.getElementById("anexo-atual").addEventListener("click", e => {
+  // Navegação principal
+  porId("btn-novo").addEventListener("click", abrirEditorNovo);
+  porId("btn-cancelar").addEventListener("click", () => mostrarVista("lista"));
+  porId("btn-guardar").addEventListener("click", guardarTemplateAtual);
+  porId("btn-eliminar").addEventListener("click", eliminarTemplateAtual);
+  porId("btn-usar-cancelar").addEventListener("click", () => mostrarVista("lista"));
+  porId("btn-inserir").addEventListener("click", inserirTemplateNoEmail);
+  porId("btn-responder").addEventListener("click", () => responderComTemplate(false));
+  porId("btn-responder-todos").addEventListener("click", () => responderComTemplate(true));
+
+  // Editor: campos simples
+  ["edit-assunto", "edit-para", "edit-cc", "edit-bcc"].forEach(id =>
+    porId(id).addEventListener("input", atualizarVarsDetetadas));
+  porId("edit-anexo").addEventListener("change", e => lidarComAnexoSelecionado(e.target.files[0]));
+  porId("anexo-atual").addEventListener("click", e => {
     if (e.target.closest("#btn-remover-anexo")) removerAnexoTemplate();
   });
-  document.getElementById("usar-anexo-extra").addEventListener("change", e => lidarComAnexosExtra(e.target.files));
 
-  // Gestão de Categorias Modal
-  document.getElementById("btn-gerir-categorias").addEventListener("click", abrirModalCategorias);
-  document.getElementById("btn-adicionar-categoria").addEventListener("click", adicionarNovaCategoria);
-  document.getElementById("novo-nome-categoria").addEventListener("keypress", e => {
+  // Editor: texto com formatação
+  const editor = editorEl();
+  editor.addEventListener("input", atualizarVarsDetetadas);
+  editor.addEventListener("paste", colarNoEditor);
+  document.addEventListener("selectionchange", guardarRangeEditor);
+
+  // mousedown com preventDefault mantém a seleção no editor ao clicar nos botões
+  const manterSelecao = el => el.addEventListener("mousedown", e => e.preventDefault());
+
+  document.querySelectorAll(".editor-toolbar [data-cmd]").forEach(btn => {
+    manterSelecao(btn);
+    btn.addEventListener("click", () => executarComando(btn.dataset.cmd));
+  });
+  manterSelecao(porId("btn-link"));
+  porId("btn-link").addEventListener("click", abrirLinhaLink);
+  porId("btn-link-ok").addEventListener("click", aplicarLink);
+  porId("btn-link-cancelar").addEventListener("click", fecharLinhaLink);
+  porId("link-url").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); aplicarLink(); }
+    if (e.key === "Escape") fecharLinhaLink();
+  });
+
+  document.querySelectorAll(".btn-var-tag").forEach(btn => {
+    manterSelecao(btn);
+    btn.addEventListener("click", () => inserirTagVariavel(btn.dataset.var));
+  });
+
+  // Vista Usar
+  porId("usar-anexo-extra").addEventListener("change", e => lidarComAnexosExtra(e.target.files));
+  porId("usar-campos").addEventListener("input", atualizarPreview);
+  porId("usar-campos").addEventListener("change", atualizarPreview);
+
+  // Categorias
+  porId("btn-gerir-categorias").addEventListener("click", abrirModalCategorias);
+  porId("btn-adicionar-categoria").addEventListener("click", adicionarNovaCategoria);
+  porId("novo-nome-categoria").addEventListener("keydown", e => {
     if (e.key === "Enter") adicionarNovaCategoria();
   });
-  document.getElementById("btn-fechar-modal-categorias").addEventListener("click", () => {
-    document.getElementById("modal-categorias").classList.add("oculto");
+  porId("btn-fechar-modal-categorias").addEventListener("click", () => {
+    porId("modal-categorias").classList.add("oculto");
   });
-
-  document.getElementById("lista-gestao-categorias").addEventListener("click", e => {
+  porId("lista-gestao-categorias").addEventListener("click", e => {
     const btn = e.target.closest("button.btn-eliminar-cat");
-    if (!btn) return;
-    const cat = btn.dataset.cat;
-    if (cat) eliminarCategoria(cat);
+    if (btn && btn.dataset.cat) eliminarCategoria(btn.dataset.cat);
   });
 
-  // Eventos de atalho para inserir variáveis no corpo
-  document.querySelectorAll(".btn-var-tag").forEach(btn => {
-    btn.addEventListener("click", e => {
-      const varNome = e.target.getAttribute("data-var");
-      if (varNome) inserirTagVariavel(varNome);
-    });
+  // Pesquisa, filtro e ordenação
+  porId("pesquisa").addEventListener("input", renderLista);
+  porId("filtro-categoria").addEventListener("change", renderLista);
+  porId("ordenacao").addEventListener("change", e => {
+    prefs.ordenacao = e.target.value;
+    guardarPrefs();
+    renderLista();
+  });
+  porId("btn-limpar-pesquisa").addEventListener("click", () => {
+    porId("pesquisa").value = "";
+    renderLista();
   });
 
-  // Pesquisa e filtro por categoria
-  document.getElementById("pesquisa").addEventListener("input", renderLista);
-  document.getElementById("filtro-categoria").addEventListener("change", renderLista);
-
-  const btnLimpar = document.getElementById("btn-limpar-pesquisa");
-  if (btnLimpar) {
-    btnLimpar.addEventListener("click", () => {
-      document.getElementById("pesquisa").value = "";
-      renderLista();
-    });
-  }
-
-  // Cliques na lista (Usar / Editar)
-  document.getElementById("lista-templates").addEventListener("click", e => {
+  // Cartões da lista
+  porId("lista-templates").addEventListener("click", e => {
     const btn = e.target.closest("button[data-acao]");
     if (!btn) return;
     const id = btn.dataset.id;
-    if (btn.dataset.acao === "usar") abrirUsarTemplate(id);
-    if (btn.dataset.acao === "editar") abrirEditorExistente(id);
+    const acoes = {
+      usar: abrirUsarTemplate,
+      editar: abrirEditorExistente,
+      duplicar: duplicarTemplate,
+      favorito: alternarFavorito
+    };
+    if (acoes[btn.dataset.acao]) acoes[btn.dataset.acao](id);
   });
 
-  // Exportar / Importar com Modal
-  document.getElementById("btn-exportar").addEventListener("click", exportarTemplates);
-  document.getElementById("btn-importar").addEventListener("click", () => {
-    const input = document.getElementById("input-importar");
+  // Exportar / Importar
+  porId("btn-exportar").addEventListener("click", exportarTemplates);
+  porId("btn-importar").addEventListener("click", () => {
+    const input = porId("input-importar");
     input.value = "";
     input.click();
   });
-
-  document.getElementById("input-importar").addEventListener("change", e => {
+  porId("input-importar").addEventListener("change", e => {
     if (e.target.files[0]) processarFicheiroImportar(e.target.files[0]);
   });
-
-  document.getElementById("btn-importar-unir").addEventListener("click", () => executarImportacao("unir"));
-  document.getElementById("btn-importar-substituir").addEventListener("click", () => executarImportacao("substituir"));
-  document.getElementById("btn-importar-cancelar").addEventListener("click", () => {
+  porId("btn-importar-unir").addEventListener("click", () => executarImportacao("unir"));
+  porId("btn-importar-substituir").addEventListener("click", () => executarImportacao("substituir"));
+  porId("btn-importar-cancelar").addEventListener("click", () => {
     backupImportarTemp = null;
-    document.getElementById("modal-importar").classList.add("oculto");
+    porId("modal-importar").classList.add("oculto");
   });
 }
+
+/* =====================================================================
+   Arranque — no fim do ficheiro: o Office.onReady pode chamar a função
+   de imediato, e todas as variáveis acima já têm de estar declaradas.
+   ===================================================================== */
+
+Office.onReady(async () => {
+  ligarEventos();
+  try {
+    await carregarTudo();
+  } catch (e) {
+    console.error("Falha ao carregar dados:", e);
+    mostrarEstado("Erro ao carregar os templates guardados.", true);
+  }
+  document.getElementById("ordenacao").value = prefs.ordenacao;
+  atualizarDropdownCategorias();
+  renderLista();
+});

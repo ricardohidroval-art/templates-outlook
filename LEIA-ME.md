@@ -8,18 +8,30 @@ Add-in pessoal para gerir templates de email com variáveis `{{campo}}`, suporte
 - `taskpane.html` / `taskpane.css` / `taskpane.js` — a interface e lógica
 - `assets/` — ícones do add-in
 
-## Novidades e Funcionalidades
+## Funcionalidades
 
-1. **Categorias / Pastas:** Organiza os teus templates em categorias (ex.: *Comercial*, *Suporte*, *Propostas* ou categorias personalizadas).
-2. **Variáveis Pré-definidas Dinâmicas:** 
-   - `{{Cumprimento}}` / `{{saudacao_tempo}}` — Preenche automaticamente *"Bom dia"*, *"Boa tarde"* ou *"Boa noite"* conforme a hora local.
-   - `{{NumDoc}}` — Campo pré-definido para Número do Documento (faturas, guias, orçamentos, etc.).
-   - `{{data_atual}}` ou `{{data}}` — Preenche a data de hoje.
-   - `{{hora_atual}}` ou `{{hora}}` — Preenche a hora atual.
-   - `{{remetente_nome}}` / `{{remetente_email}}` — Obtém os teus dados de perfil no Outlook.
-   - `{{destinatario_nome}}` / `{{destinatario_email}}` — Obtém automaticamente os dados do primeiro destinatário no email ativo.
-3. **Pesquisa e Filtros Rápido:** Procura em tempo real por nome, assunto, corpo do email ou filtra por categoria.
-4. **Melhorias em Backup e Restauro:** Exportação em formato JSON com metadados e assistente de importação com opções de **Unir com existentes** ou **Substituir todos**.
+1. **Categorias / Pastas:** organiza os templates em categorias (todas podem ser eliminadas, exceto *Geral*).
+2. **Editor com formatação:** negrito, itálico, sublinhado, listas e links. Ao colar do Word mantém-se a formatação básica e remove-se o resto.
+3. **Variáveis pré-definidas dinâmicas:**
+   - `{{Cumprimento}}` / `{{saudacao_tempo}}` — *"Bom dia"*, *"Boa tarde"* ou *"Boa noite"* conforme a hora.
+   - `{{NumDoc}}` — Número do Documento (faturas, guias, orçamentos…).
+   - `{{data_atual}}` / `{{data}}` — data de hoje (DD/MM/AAAA); `{{data_extenso}}` — *5 de novembro de 2026*.
+   - **Datas calculadas:** `{{data+30}}`, `{{data-7}}`, `{{data_extenso+15}}` (dias a somar/subtrair).
+   - `{{hora_atual}}` / `{{hora}}` — hora atual.
+   - `{{remetente_nome}}` / `{{remetente_email}}` — os teus dados no Outlook.
+   - `{{destinatario_nome}}` / `{{destinatario_email}}` — primeiro destinatário (ou quem te enviou o email, ao responder).
+4. **Variáveis com opções:**
+   - `{{prazo|15 dias}}` — valor por omissão, editável.
+   - `{{estado:Pendente,Pago,Em atraso}}` — aparece como lista de escolha.
+   - Os nomes aceitam acentos: `{{número}}`, `{{orçamento}}`.
+5. **Valores recentes:** cada variável lembra os últimos valores usados e sugere-os ao preencher.
+6. **Pré-visualização** do assunto e do corpo antes de inserir.
+7. **Onde colocar o texto:** no cursor, no início do email ou substituir tudo (atenção: substituir apaga a assinatura). A escolha fica memorizada.
+8. **Responder com template:** ao ler um email, o template abre uma resposta (ou resposta a todos) já preenchida.
+9. **Favoritos e ordenação:** marca templates com ★ (ficam sempre no topo) e ordena por *mais usados*, *usados recentemente* ou *nome*.
+10. **Duplicar** templates para criar variantes.
+11. **Confirmação** antes de eliminar templates ou categorias.
+12. **Backup:** exporta todos os templates ou, com uma categoria selecionada no filtro, só essa categoria (útil para partilhar com colegas). Importação com **Unir** ou **Substituir**.
 
 ---
 
@@ -63,4 +75,6 @@ O botão **"Meus Templates"** aparece no friso ao compor (ou ler) um email.
 ## Notas técnicas
 
 - Requer Mailbox API 1.8 (Outlook 2019+ / Microsoft 365 / Outlook na Web) por causa da inserção de anexos em base64 e leitura de perfil/destinatários.
-- Os templates e anexos ficam em `localStorage` do browser onde o Outlook corre — não saem do teu computador.
+- Os templates e anexos ficam guardados no **IndexedDB** do browser onde o Outlook corre (sem o limite de ~5 MB do `localStorage`) — não saem do teu computador. Na primeira abertura desta versão, os templates antigos são migrados automaticamente.
+- Os dados são locais a cada computador/browser: faz **Exportar Backup** regularmente e usa **Importar** para os levar para outro PC.
+- Ao responder a partir de um email recebido, o Outlook não permite juntar anexos automaticamente: abre os Meus Templates na janela da resposta para usar o template com anexos.
