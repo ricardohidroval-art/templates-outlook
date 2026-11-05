@@ -62,5 +62,5 @@ O botão **"Meus Templates"** aparece no friso ao compor (ou ler) um email.
 
 ## Notas técnicas
 
-- Requer Mailbox API 1.8 (Outlook 2016+ / Microsoft 365 / Outlook na Web) por causa da inserção de anexos em base64 e leitura de perfil/destinatários.
+- Requer Mailbox API 1.8 (Outlook 2019+ / Microsoft 365 / Outlook na Web) por causa da inserção de anexos em base64 e leitura de perfil/destinatários.
 - Os templates e anexos ficam em `localStorage` do browser onde o Outlook corre — não saem do teu computador.

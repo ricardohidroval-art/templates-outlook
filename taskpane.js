@@ -39,8 +39,18 @@ function carregarTemplates() {
   }
 }
 
+// Devolve true se gravou. Em caso de falha (ex.: espaço do localStorage esgotado
+// por causa de anexos grandes), repõe o último estado gravado e avisa.
 function guardarTemplates() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+    return true;
+  } catch (e) {
+    console.error("Falha ao gravar templates:", e);
+    carregarTemplates();
+    mostrarEstado("Não foi possível guardar: sem espaço de armazenamento (anexos demasiado grandes?). As alterações não foram gravadas.", true);
+    return false;
+  }
 }
 
 function carregarCategorias() {
@@ -57,11 +67,20 @@ function carregarCategorias() {
 }
 
 function guardarCategorias() {
-  localStorage.setItem(CATEGORIAS_KEY, JSON.stringify(categoriasCustom));
+  try {
+    localStorage.setItem(CATEGORIAS_KEY, JSON.stringify(categoriasCustom));
+    return true;
+  } catch (e) {
+    console.error("Falha ao gravar categorias:", e);
+    mostrarEstado("Não foi possível guardar as categorias (sem espaço de armazenamento).", true);
+    return false;
+  }
 }
 
 function obterCategoriasUnicas() {
-  const setCat = new Set(["Geral", ...CATEGORIAS_PADRAO, ...categoriasCustom]);
+  // As categorias padrão já entram em categoriasCustom na primeira utilização,
+  // por isso podem ser eliminadas como qualquer outra (exceto "Geral").
+  const setCat = new Set(["Geral", ...categoriasCustom]);
   templates.forEach(t => {
     if (t.categoria && t.categoria.trim()) {
       setCat.add(t.categoria.trim());
@@ -277,7 +296,7 @@ function abrirEditorExistente(id) {
   document.getElementById("edit-assunto").value = t.assunto;
   document.getElementById("edit-corpo").value = t.corpo;
   document.getElementById("edit-anexo").value = "";
-  document.getElementById("anexo-atual").textContent = t.anexo ? `Anexo atual: ${t.anexo.nome}` : "";
+  atualizarAnexoAtualUI("Anexo atual");
   document.getElementById("btn-eliminar").classList.remove("oculto");
   atualizarDropdownCategorias();
   atualizarVarsDetetadas();
@@ -359,7 +378,11 @@ function guardarTemplateAtual() {
     });
   }
 
-  guardarTemplates();
+  if (!guardarTemplates()) {
+    // Fica no editor para o utilizador poder remover/trocar o anexo e tentar de novo
+    renderLista();
+    return;
+  }
   atualizarDropdownCategorias();
   renderLista();
   mostrarVista("lista");
@@ -376,13 +399,33 @@ function eliminarTemplateAtual() {
   mostrarEstado("Template eliminado.");
 }
 
+function atualizarAnexoAtualUI(prefixo) {
+  const el = document.getElementById("anexo-atual");
+  el.innerHTML = "";
+  if (!anexoTemp) return;
+  const span = document.createElement("span");
+  span.textContent = `${prefixo}: ${anexoTemp.nome} `;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "btn-remover-anexo";
+  btn.className = "btn btn-link";
+  btn.textContent = "Remover";
+  el.append(span, btn);
+}
+
+function removerAnexoTemplate() {
+  anexoTemp = null;
+  document.getElementById("edit-anexo").value = "";
+  atualizarAnexoAtualUI();
+}
+
 function lidarComAnexoSelecionado(ficheiro) {
   if (!ficheiro) return;
   const reader = new FileReader();
   reader.onload = () => {
     const base64 = reader.result.split(",")[1];
     anexoTemp = { nome: ficheiro.name, tipoConteudo: ficheiro.type || "application/octet-stream", base64 };
-    document.getElementById("anexo-atual").textContent = `Anexo selecionado: ${ficheiro.name}`;
+    atualizarAnexoAtualUI("Anexo selecionado");
   };
   reader.readAsDataURL(ficheiro);
 }
@@ -579,7 +622,8 @@ function inserirTemplateNoEmail() {
 
   const assuntoFinal = substituirVariaveis(templateAUsar.assunto, valores);
   const corpoFinal = substituirVariaveis(templateAUsar.corpo, valores);
-  const corpoHtml = corpoFinal.replace(/\n/g, "<br>");
+  // O corpo é texto simples: escapar < > & para não ser interpretado como HTML
+  const corpoHtml = escapeHtml(corpoFinal).replace(/\r?\n/g, "<br>");
 
   const paraFinal = substituirVariaveis(document.getElementById("usar-para").value, valores);
   const ccFinal = substituirVariaveis(document.getElementById("usar-cc").value, valores);
@@ -746,6 +790,8 @@ function processarFicheiroImportar(ficheiro) {
 function executarImportacao(modo) {
   if (!backupImportarTemp) return;
 
+  const categoriasAntes = [...categoriasCustom];
+
   if (modo === "unir") {
     templates = templates.concat(backupImportarTemp.templates);
     backupImportarTemp.categoriasCustom.forEach(c => {
@@ -763,8 +809,12 @@ function executarImportacao(modo) {
   backupImportarTemp = null;
   document.getElementById("modal-importar").classList.add("oculto");
 
-  guardarTemplates();
-  guardarCategorias();
+  if (!guardarTemplates()) {
+    // Importação revertida (guardarTemplates já repôs os templates e avisou)
+    categoriasCustom = categoriasAntes;
+  } else {
+    guardarCategorias();
+  }
   atualizarDropdownCategorias();
   renderLista();
 }
@@ -775,7 +825,9 @@ function escapeHtml(str) {
   return String(str || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 let estadoTimeout = null;
@@ -804,6 +856,9 @@ function ligarEventos() {
   document.getElementById("edit-cc").addEventListener("input", atualizarVarsDetetadas);
   document.getElementById("edit-bcc").addEventListener("input", atualizarVarsDetetadas);
   document.getElementById("edit-anexo").addEventListener("change", e => lidarComAnexoSelecionado(e.target.files[0]));
+  document.getElementById("anexo-atual").addEventListener("click", e => {
+    if (e.target.closest("#btn-remover-anexo")) removerAnexoTemplate();
+  });
   document.getElementById("usar-anexo-extra").addEventListener("change", e => lidarComAnexosExtra(e.target.files));
 
   // Gestão de Categorias Modal
